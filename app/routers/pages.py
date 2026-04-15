@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compliance.analysis import build_kbv_summary
+from app.compliance.dashboard import build_dashboard
 from app.db import get_session
 from app.models import Scan
 from app.queue import scan_queue
@@ -63,7 +64,10 @@ async def scan_detail(
     if not scan:
         raise HTTPException(status_code=404, detail="Scan nicht gefunden")
     kbv = build_kbv_summary(scan.result)
-    return templates.TemplateResponse(request, "scan_detail.html", {"scan": scan, "kbv": kbv})
+    dashboard = build_dashboard(scan.result)
+    return templates.TemplateResponse(
+        request, "scan_detail.html", {"scan": scan, "kbv": kbv, "dashboard": dashboard}
+    )
 
 
 @router.get("/scans/{scan_id}/status", response_class=HTMLResponse)
@@ -74,7 +78,10 @@ async def scan_status_fragment(
     if not scan:
         raise HTTPException(status_code=404, detail="Scan nicht gefunden")
     kbv = build_kbv_summary(scan.result)
-    return templates.TemplateResponse(request, "partials/scan_status.html", {"scan": scan, "kbv": kbv})
+    dashboard = build_dashboard(scan.result)
+    return templates.TemplateResponse(
+        request, "partials/scan_status.html", {"scan": scan, "kbv": kbv, "dashboard": dashboard}
+    )
 
 
 @router.get("/scans/{scan_id}/report.pdf")
@@ -88,10 +95,11 @@ async def scan_report_pdf(
         raise HTTPException(status_code=409, detail="Scan ist noch nicht abgeschlossen")
 
     kbv = build_kbv_summary(scan.result)
+    dashboard = build_dashboard(scan.result)
     generated_at = datetime.now(timezone.utc)
 
     html = templates.get_template("report_pdf.html").render(
-        request=request, scan=scan, kbv=kbv, generated_at=generated_at
+        request=request, scan=scan, kbv=kbv, dashboard=dashboard, generated_at=generated_at
     )
 
     # Import WeasyPrint lazily so test environments without the system libs

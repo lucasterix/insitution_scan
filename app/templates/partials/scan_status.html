@@ -7,41 +7,63 @@
      hx-swap="outerHTML"
      {% endif %}>
 
-<div class="bg-white border border-slate-200 rounded-xl p-6 mb-6">
-  <div class="flex items-center justify-between mb-4">
-    <div>
-      <span class="inline-block px-2 py-1 rounded text-xs font-medium bg-{{ color }}-100 text-{{ color }}-700 uppercase">{{ scan.status }}</span>
-      {% if scan.current_step %}<span class="text-sm text-slate-600 ml-2">{{ scan.current_step }}</span>{% endif %}
+{% if scan.status in ['queued', 'running'] %}
+  <div class="bg-white border border-slate-200 rounded-xl p-6 mb-6 shadow-sm">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <span class="inline-block w-2 h-2 rounded-full bg-{{ color }}-500 animate-pulse"></span>
+        <span class="text-sm font-medium text-slate-700 uppercase tracking-wide">{{ scan.status }}</span>
+        {% if scan.current_step %}<span class="text-sm text-slate-500">· {{ scan.current_step }}</span>{% endif %}
+      </div>
+      <div class="text-sm text-slate-500">{{ scan.progress }}%</div>
     </div>
-    <div class="text-sm text-slate-500">
-      {% if scan.started_at %}Start: {{ scan.started_at.strftime('%H:%M:%S') }}{% endif %}
-      {% if scan.finished_at %} · Ende: {{ scan.finished_at.strftime('%H:%M:%S') }}{% endif %}
+    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+      <div class="bg-emerald-500 h-full transition-all duration-500" style="width: {{ scan.progress }}%"></div>
     </div>
   </div>
+{% endif %}
 
-  {% if scan.status in ['queued', 'running'] %}
-  <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-    <div class="bg-emerald-500 h-full transition-all duration-500" style="width: {{ scan.progress }}%"></div>
+{% if scan.status == 'failed' and scan.error %}
+  <div class="bg-rose-50 border border-rose-200 rounded-xl p-6 mb-6">
+    <h2 class="font-semibold text-rose-900 mb-1">Scan fehlgeschlagen</h2>
+    <p class="text-sm text-rose-800">{{ scan.error }}</p>
   </div>
-  {% endif %}
+{% endif %}
 
-  {% if scan.error %}
-  <div class="mt-4 p-4 bg-rose-50 border border-rose-200 rounded-lg text-sm text-rose-800">
-    <strong>Fehler:</strong> {{ scan.error }}
-  </div>
-  {% endif %}
-</div>
+{% if scan.status == 'completed' and dashboard and dashboard.has_data %}
+  {% set grade_color = dashboard.grade.color %}
 
-{% if scan.status == 'completed' and scan.result %}
-  {% set counts = scan.result.severity_counts %}
-  <div class="flex items-center justify-between mb-4">
-    <h2 class="text-lg font-semibold text-slate-700">Auf einen Blick</h2>
-    <a href="/scans/{{ scan.id }}/report.pdf"
-       class="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 text-sm">
-      📄 Als PDF exportieren
-    </a>
-  </div>
-  <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+  <!-- HERO: Overall risk grade + export -->
+  <section class="mb-6">
+    <div class="bg-gradient-to-br from-{{ grade_color }}-50 to-white border border-{{ grade_color }}-200 rounded-2xl p-8 shadow-sm">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+        <div class="flex items-center gap-6">
+          <div class="w-28 h-28 rounded-2xl bg-{{ grade_color }}-600 text-white flex items-center justify-center shadow-lg">
+            <span class="text-6xl font-bold leading-none">{{ dashboard.grade.letter }}</span>
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-widest text-{{ grade_color }}-700 font-semibold">Sicherheits­bewertung</div>
+            <h2 class="text-2xl font-bold text-slate-900 mt-1">{{ dashboard.grade.label }}</h2>
+            <p class="text-sm text-slate-600 mt-2 max-w-xl">{{ dashboard.grade.description }}</p>
+          </div>
+        </div>
+        <div class="flex flex-col items-end gap-3">
+          <div class="text-right">
+            <div class="text-xs uppercase tracking-widest text-slate-500 font-semibold">Risiko-Score</div>
+            <div class="text-4xl font-bold text-slate-900">{{ dashboard.score }}<span class="text-xl text-slate-500">/100</span></div>
+          </div>
+          <a href="/scans/{{ scan.id }}/report.pdf"
+             class="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-700 text-sm font-medium shadow-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>
+            Prüfbericht als PDF
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Severity KPI row -->
+  <section class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
     {% for sev, label, col in [
       ('critical', 'Kritisch', 'rose'),
       ('high', 'Hoch', 'orange'),
@@ -49,112 +71,166 @@
       ('low', 'Niedrig', 'sky'),
       ('info', 'Info', 'slate'),
     ] %}
-    <div class="bg-white border border-slate-200 rounded-xl p-4 text-center">
-      <div class="text-3xl font-bold text-{{ col }}-600">{{ counts.get(sev, 0) }}</div>
-      <div class="text-xs uppercase text-slate-500 mt-1">{{ label }}</div>
+    <div class="bg-white border border-slate-200 rounded-xl p-4 hover:border-slate-300 transition">
+      <div class="flex items-baseline justify-between">
+        <div class="text-3xl font-bold text-{{ col }}-600">{{ dashboard.counts.get(sev, 0) }}</div>
+        <div class="w-2 h-2 rounded-full bg-{{ col }}-500"></div>
+      </div>
+      <div class="text-xs uppercase tracking-wide text-slate-500 mt-1">{{ label }}</div>
     </div>
     {% endfor %}
-  </div>
+  </section>
 
+  <!-- Top risks -->
+  {% if dashboard.top_risks %}
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-slate-700 mb-3">🎯 Top-Risiken zuerst beheben</h2>
+    <div class="space-y-2">
+      {% for f in dashboard.top_risks %}
+        {% set fc = {'critical': 'rose', 'high': 'orange', 'medium': 'amber', 'low': 'sky', 'info': 'slate'}.get(f.severity, 'slate') %}
+        <a href="#finding-{{ f.id }}" class="block bg-white border border-slate-200 rounded-xl p-4 border-l-4 border-l-{{ fc }}-500 hover:shadow-md transition">
+          <div class="flex items-start gap-3">
+            <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-{{ fc }}-100 text-{{ fc }}-700 uppercase mt-0.5">{{ f.severity }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-semibold text-slate-900">{{ f.title }}</div>
+              <div class="text-xs text-slate-500 mt-0.5">{{ f.category }}</div>
+            </div>
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- KBV compliance block -->
   {% if kbv %}
-  <div class="bg-white border border-slate-200 rounded-xl p-6 mb-6">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-xl font-bold">KBV IT-Sicherheitsrichtlinie (§390 SGB V)</h2>
-      <div class="text-right">
-        <div class="text-3xl font-bold {{ 'text-emerald-600' if kbv.totals.pct >= 80 else 'text-amber-600' if kbv.totals.pct >= 50 else 'text-rose-600' }}">
-          {{ kbv.totals.pct }}%
+  <section class="mb-8">
+    <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+      <div class="flex items-center justify-between mb-5">
+        <div>
+          <h2 class="text-xl font-bold text-slate-900">KBV IT-Sicherheitsrichtlinie</h2>
+          <p class="text-xs text-slate-500 mt-1">§390 SGB V — Selbst-Assessment, keine rechtsverbindliche Bewertung</p>
         </div>
-        <div class="text-xs uppercase text-slate-500">{{ kbv.totals.ok }}/{{ kbv.totals.total }} erfüllt</div>
+        <div class="text-right">
+          <div class="text-4xl font-bold {{ 'text-emerald-600' if kbv.totals.pct >= 80 else 'text-amber-600' if kbv.totals.pct >= 50 else 'text-rose-600' }}">
+            {{ kbv.totals.pct }}%
+          </div>
+          <div class="text-xs uppercase text-slate-500">{{ kbv.totals.ok }}/{{ kbv.totals.total }} erfüllt</div>
+        </div>
+      </div>
+
+      <div class="space-y-5">
+      {% for a in kbv.anlagen %}
+      <div>
+        <h3 class="font-semibold text-slate-800 mb-2 flex items-center gap-2">
+          <span>{{ a.title }}</span>
+          <span class="text-xs font-normal text-slate-500 px-2 py-0.5 rounded bg-slate-100">{{ a.ok_count }} ok · {{ a.fail_count }} offen</span>
+        </h3>
+        <div class="grid md:grid-cols-2 gap-2">
+          {% for r in a.requirements %}
+            {% if r.status == 'fail' %}
+              {% set rc = {'critical': 'rose', 'high': 'orange', 'medium': 'amber', 'low': 'sky', 'info': 'slate'}.get(r.severity, 'rose') %}
+              <div class="flex items-start gap-2 p-3 rounded-lg bg-{{ rc }}-50 border border-{{ rc }}-200">
+                <span class="text-{{ rc }}-600 font-bold">✗</span>
+                <div class="flex-1 text-sm">
+                  <div class="font-semibold text-slate-900">{{ r.code }} · {{ r.title }}</div>
+                  <div class="text-xs text-slate-600 mt-0.5">{{ r.description }}</div>
+                </div>
+              </div>
+            {% else %}
+              <div class="flex items-start gap-2 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                <span class="text-emerald-600 font-bold">✓</span>
+                <div class="flex-1 text-sm">
+                  <div class="font-semibold text-slate-900">{{ r.code }} · {{ r.title }}</div>
+                </div>
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
       </div>
     </div>
+  </section>
+  {% endif %}
 
-    {% for a in kbv.anlagen %}
-    <div class="mb-4 last:mb-0">
-      <h3 class="font-semibold text-slate-800 mb-2">
-        {{ a.title }}
-        <span class="ml-2 text-xs font-normal text-slate-500">
-          ({{ a.ok_count }} ok, {{ a.fail_count }} offen)
-        </span>
+  <!-- Category grid -->
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-slate-700 mb-3">📊 Befunde nach Bereich</h2>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      {% for cat in dashboard.categories %}
+        {% set wc = {'critical': 'rose', 'high': 'orange', 'medium': 'amber', 'low': 'sky', 'info': 'slate'}.get(cat.worst, 'slate') %}
+        <a href="#cat-{{ loop.index }}" class="block bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition">
+          <div class="flex items-start justify-between mb-2">
+            <span class="text-2xl">{{ cat.emoji }}</span>
+            <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-{{ wc }}-100 text-{{ wc }}-700 uppercase">{{ cat.worst }}</span>
+          </div>
+          <div class="text-sm font-semibold text-slate-900">{{ cat.label }}</div>
+          <div class="text-xs text-slate-500 mt-0.5">{{ cat.total }} Befund{{ '' if cat.total == 1 else 'e' }}</div>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <!-- All findings grouped by category -->
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-slate-700 mb-3">Alle Befunde</h2>
+    {% for cat in dashboard.categories %}
+    <div id="cat-{{ loop.index }}" class="mb-5">
+      <h3 class="font-semibold text-slate-800 mb-2 flex items-center gap-2 scroll-mt-6">
+        <span class="text-xl">{{ cat.emoji }}</span>
+        <span>{{ cat.label }}</span>
+        <span class="text-xs font-normal text-slate-500 px-2 py-0.5 rounded bg-slate-100">{{ cat.total }}</span>
       </h3>
       <div class="space-y-2">
-        {% for r in a.requirements %}
-          {% if r.status == 'fail' %}
-            {% set rc = {'critical': 'rose', 'high': 'orange', 'medium': 'amber', 'low': 'sky', 'info': 'slate'}.get(r.severity, 'rose') %}
-            <div class="flex items-start gap-3 p-3 rounded-lg bg-{{ rc }}-50 border border-{{ rc }}-200">
-              <span class="text-{{ rc }}-600 font-bold">✗</span>
-              <div class="flex-1">
-                <div class="text-sm font-semibold text-slate-900">{{ r.code }} — {{ r.title }}</div>
-                <div class="text-xs text-slate-600 mt-0.5">{{ r.description }}</div>
+        {% for f in cat.findings %}
+          {% set fc = {'critical': 'rose', 'high': 'orange', 'medium': 'amber', 'low': 'sky', 'info': 'slate'}.get(f.severity, 'slate') %}
+          <div id="finding-{{ f.id }}" class="bg-white border border-slate-200 rounded-xl p-5 border-l-4 border-l-{{ fc }}-500 scroll-mt-6">
+            <div class="flex items-start gap-3 mb-2">
+              <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-{{ fc }}-100 text-{{ fc }}-700 uppercase mt-1">{{ f.severity }}</span>
+              <div class="flex-1 min-w-0">
+                <h4 class="font-semibold text-slate-900">{{ f.title }}</h4>
               </div>
             </div>
-          {% else %}
-            <div class="flex items-start gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
-              <span class="text-emerald-600 font-bold">✓</span>
-              <div class="flex-1">
-                <div class="text-sm font-semibold text-slate-900">{{ r.code }} — {{ r.title }}</div>
-              </div>
+            <p class="text-sm text-slate-700 whitespace-pre-line">{{ f.description }}</p>
+            {% if f.recommendation %}
+            <div class="mt-3 p-3 bg-emerald-50 border border-emerald-100 rounded-lg text-sm text-emerald-900">
+              <span class="font-semibold">→ Empfehlung:</span> {{ f.recommendation }}
             </div>
-          {% endif %}
+            {% endif %}
+            {% if f.kbv_ref %}
+            <div class="mt-2 text-xs text-slate-500">📋 {{ f.kbv_ref }}</div>
+            {% endif %}
+            {% if f.evidence %}
+            <details class="mt-2">
+              <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-700">Evidenz anzeigen</summary>
+              <pre class="text-xs bg-slate-50 border border-slate-200 rounded p-3 mt-2 overflow-x-auto">{{ f.evidence | tojson(indent=2) }}</pre>
+            </details>
+            {% endif %}
+          </div>
         {% endfor %}
       </div>
     </div>
     {% endfor %}
+  </section>
 
-    <p class="mt-4 text-xs text-slate-500 italic">
-      Hinweis: Die Zuordnung ist eine praxistaugliche Näherung, kein Rechtstext.
-      Die finale Compliance-Bewertung muss durch einen Fachkundigen erfolgen —
-      das Tool liefert die technische Grundlage.
-    </p>
-  </div>
-  {% endif %}
-
-  <h2 class="text-xl font-bold mb-4">Findings ({{ scan.result.findings | length }})</h2>
-
-  {% if scan.result.findings %}
-  <div class="space-y-3">
-    {% for f in scan.result.findings %}
-      {% set fc = {'critical': 'rose', 'high': 'orange', 'medium': 'amber', 'low': 'sky', 'info': 'slate'}.get(f.severity, 'slate') %}
-      <div class="bg-white border border-slate-200 rounded-xl p-5 border-l-4 border-l-{{ fc }}-500">
-        <div class="flex items-start justify-between gap-4 mb-2">
-          <div>
-            <span class="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-{{ fc }}-100 text-{{ fc }}-700 uppercase mr-2">{{ f.severity }}</span>
-            <span class="text-xs text-slate-500">{{ f.category }}</span>
-            <h3 class="font-semibold text-slate-900 mt-1">{{ f.title }}</h3>
-          </div>
-        </div>
-        <p class="text-sm text-slate-700 mb-2">{{ f.description }}</p>
-        {% if f.recommendation %}
-        <p class="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-3 py-2 mt-2">
-          <strong>Empfehlung:</strong> {{ f.recommendation }}
-        </p>
-        {% endif %}
-        {% if f.kbv_ref %}
-        <p class="text-xs text-slate-500 mt-2">📋 {{ f.kbv_ref }}</p>
-        {% endif %}
-        {% if f.evidence %}
-        <details class="mt-2">
-          <summary class="text-xs text-slate-500 cursor-pointer">Evidenz</summary>
-          <pre class="text-xs bg-slate-50 border border-slate-200 rounded p-2 mt-1 overflow-x-auto">{{ f.evidence | tojson(indent=2) }}</pre>
-        </details>
-        {% endif %}
-      </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center text-emerald-800">
-    ✅ Keine Findings — der Scan hat keine Auffälligkeiten entdeckt.
-  </div>
-  {% endif %}
-
+  <!-- Raw metadata appendix -->
   {% if scan.result.metadata %}
-  <details class="mt-6 bg-white border border-slate-200 rounded-xl p-5">
-    <summary class="font-semibold cursor-pointer">Rohdaten (Metadata)</summary>
-    <pre class="text-xs bg-slate-50 border border-slate-200 rounded p-3 mt-3 overflow-x-auto">{{ scan.result.metadata | tojson(indent=2) }}</pre>
-  </details>
+  <section class="mb-8">
+    <details class="bg-white border border-slate-200 rounded-xl p-5">
+      <summary class="font-semibold text-slate-700 cursor-pointer">Rohdaten / Technische Metadaten</summary>
+      <pre class="text-xs bg-slate-50 border border-slate-200 rounded p-3 mt-3 overflow-x-auto">{{ scan.result.metadata | tojson(indent=2) }}</pre>
+    </details>
+  </section>
   {% endif %}
 
-  <div class="mt-6">
-    <a href="/api/scans/{{ scan.id }}" class="text-sm text-emerald-600 hover:text-emerald-800">JSON-Export ↓</a>
+  <div class="mt-6 text-center">
+    <a href="/api/scans/{{ scan.id }}" class="text-sm text-emerald-600 hover:text-emerald-800">↓ JSON-Export</a>
+  </div>
+
+{% elif scan.status == 'completed' %}
+  <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-8 text-center">
+    <div class="text-emerald-700 font-semibold">Scan abgeschlossen, aber keine Ergebnisse.</div>
   </div>
 {% endif %}
 

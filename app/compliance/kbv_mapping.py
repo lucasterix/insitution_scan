@@ -201,6 +201,13 @@ KBV_REQUIREMENTS: tuple[KBVRequirement, ...] = (
         description="KIM-DNS-Einträge sind vorhanden (positiv) und keine TI-Komponente ist öffentlich erreichbar.",
         finding_id_prefixes=(),  # This is a positive requirement; status stays 'ok' unless connector hits exist.
     ),
+    KBVRequirement(
+        anlage=1,
+        code="A1.7",
+        title="Keine GPS-/Personen-Metadaten in öffentlichen Bildern",
+        description="Fotos auf der Website enthalten keine EXIF-GPS-Koordinaten oder personenbezogenen Felder (Artist, Author, Camera Owner).",
+        finding_id_prefixes=("image.exif_gps_leaked", "image.exif_personal_leaked"),
+    ),
 )
 
 

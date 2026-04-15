@@ -18,6 +18,8 @@ from app.scanners.email_auth_deep import check_email_deep
 from app.scanners.email_harvest import harvest_and_check
 from app.scanners.exposed_files import check_exposed_files
 from app.scanners.healthcare import check_healthcare
+from app.scanners.image_metadata import check_image_metadata
+from app.scanners.mail_provider import check_mail_provider
 from app.scanners.pdf_metadata import check_pdf_metadata
 from app.scanners.port_scan import active_port_scan
 from app.scanners.privacy import check_privacy
@@ -524,6 +526,7 @@ def run_osint_scan(domain: str, on_progress: Callable[[str, int], None] | None =
 
     step("Starte Scan", 1)
     check_dns(domain, result, step)
+    check_mail_provider(domain, result, step)
     check_email_auth(domain, result, step)
     check_email_deep(domain, result, step)
     check_privacy(domain, result, step)
@@ -538,6 +541,7 @@ def run_osint_scan(domain: str, on_progress: Callable[[str, int], None] | None =
     active_port_scan(domain, result, step)
     check_robots(domain, result, step)
     check_pdf_metadata(domain, result, step)
+    check_image_metadata(domain, result, step)
     check_tech_fingerprint(domain, result, step)
     check_known_vulns(domain, result, step)
     harvest_and_check(domain, result, step)

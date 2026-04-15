@@ -2,124 +2,518 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>MVZ Self-Scan Report — {{ scan.target_domain }}</title>
+  <title>MVZ Self-Scan Prüfbericht — {{ scan.target_domain }}</title>
   <style>
-    @page { size: A4; margin: 2cm 1.8cm 2.2cm 1.8cm; @bottom-center { content: "Seite " counter(page) " / " counter(pages); font-size: 9pt; color: #64748b; } }
+    @page {
+      size: A4;
+      margin: 22mm 18mm 25mm 18mm;
+      @top-left { content: "MVZ Self-Scan · Prüfbericht"; font-size: 8pt; color: #64748b; }
+      @top-right { content: "{{ scan.target_domain }}"; font-size: 8pt; color: #64748b; }
+      @bottom-center { content: "Seite " counter(page) " / " counter(pages); font-size: 8pt; color: #64748b; }
+    }
+    @page :first {
+      margin: 0;
+      @top-left { content: ""; }
+      @top-right { content: ""; }
+      @bottom-center { content: ""; }
+    }
+    @page toc { @top-left { content: "Inhaltsverzeichnis"; } }
+
     * { box-sizing: border-box; }
-    body { font-family: "DejaVu Sans", sans-serif; color: #1e293b; font-size: 10pt; line-height: 1.45; }
-    h1 { font-size: 22pt; margin: 0 0 4pt 0; color: #064e3b; }
-    h2 { font-size: 14pt; margin: 18pt 0 6pt 0; color: #0f172a; border-bottom: 1px solid #cbd5e1; padding-bottom: 3pt; }
-    h3 { font-size: 11pt; margin: 10pt 0 4pt 0; color: #334155; }
-    .meta { color: #64748b; font-size: 9pt; margin-bottom: 14pt; }
-    .meta strong { color: #334155; }
+    body { font-family: "DejaVu Sans", sans-serif; color: #0f172a; font-size: 10pt; line-height: 1.5; }
+    h1 { font-size: 22pt; margin: 0 0 6pt 0; color: #064e3b; page-break-after: avoid; }
+    h2 { font-size: 15pt; margin: 22pt 0 8pt 0; color: #064e3b; border-bottom: 2px solid #064e3b; padding-bottom: 4pt; page-break-after: avoid; }
+    h3 { font-size: 11pt; margin: 14pt 0 6pt 0; color: #334155; page-break-after: avoid; }
+    h4 { font-size: 10pt; margin: 8pt 0 4pt 0; color: #475569; page-break-after: avoid; }
+    p { margin: 4pt 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 9pt; }
+    th, td { padding: 4pt 6pt; text-align: left; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    th { background: #f8fafc; color: #475569; font-weight: 600; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.5pt; }
 
-    .severity-grid { display: flex; gap: 6pt; margin: 10pt 0 14pt; }
-    .sev-card { flex: 1; border: 1px solid #e2e8f0; border-radius: 6pt; padding: 8pt; text-align: center; }
-    .sev-card .num { font-size: 18pt; font-weight: bold; }
-    .sev-card .lbl { font-size: 8pt; text-transform: uppercase; color: #64748b; margin-top: 2pt; }
-    .sev-critical .num { color: #e11d48; }
-    .sev-high .num { color: #ea580c; }
-    .sev-medium .num { color: #d97706; }
-    .sev-low .num { color: #0284c7; }
-    .sev-info .num { color: #64748b; }
+    /* --- COVER PAGE --- */
+    .cover {
+      height: 297mm;
+      background: linear-gradient(135deg, #064e3b 0%, #065f46 50%, #059669 100%);
+      color: white;
+      padding: 30mm 20mm;
+      display: block;
+      page-break-after: always;
+      position: relative;
+    }
+    .cover .brand {
+      font-size: 10pt;
+      letter-spacing: 2pt;
+      text-transform: uppercase;
+      opacity: 0.8;
+    }
+    .cover h1 {
+      font-size: 36pt;
+      color: white;
+      margin: 14mm 0 4mm 0;
+      line-height: 1.1;
+    }
+    .cover .subtitle {
+      font-size: 14pt;
+      opacity: 0.9;
+      margin-bottom: 30mm;
+    }
+    .cover .domain-box {
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 8pt;
+      padding: 12pt 16pt;
+      margin-bottom: 14mm;
+    }
+    .cover .domain-box .label {
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 1.5pt;
+      opacity: 0.75;
+      margin-bottom: 4pt;
+    }
+    .cover .domain-box .value {
+      font-size: 18pt;
+      font-family: "DejaVu Sans Mono", monospace;
+      font-weight: bold;
+    }
+    .cover .grade-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 18pt;
+      padding: 14pt;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 10pt;
+    }
+    .cover .grade-letter {
+      font-size: 70pt;
+      font-weight: bold;
+      line-height: 1;
+    }
+    .cover .grade-info .label {
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 1.2pt;
+      opacity: 0.8;
+    }
+    .cover .grade-info h2 {
+      color: white;
+      font-size: 18pt;
+      border: none;
+      margin: 2pt 0 4pt 0;
+      padding: 0;
+    }
+    .cover .grade-info p {
+      font-size: 10pt;
+      opacity: 0.9;
+      max-width: 120mm;
+    }
+    .cover .footer-meta {
+      position: absolute;
+      bottom: 20mm;
+      left: 20mm;
+      right: 20mm;
+      font-size: 9pt;
+      opacity: 0.85;
+      border-top: 1px solid rgba(255, 255, 255, 0.25);
+      padding-top: 8pt;
+      display: flex;
+      justify-content: space-between;
+    }
 
-    .kbv-summary { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6pt; padding: 10pt; margin-bottom: 12pt; }
-    .kbv-pct { font-size: 28pt; font-weight: bold; }
-    .kbv-pct.good { color: #059669; }
-    .kbv-pct.warn { color: #d97706; }
-    .kbv-pct.bad { color: #e11d48; }
-    .kbv-req { padding: 6pt 8pt; border-radius: 4pt; margin-bottom: 4pt; font-size: 9pt; border: 1px solid; }
-    .kbv-req.ok { background: #ecfdf5; border-color: #a7f3d0; }
-    .kbv-req.fail { background: #fef2f2; border-color: #fecaca; }
-    .kbv-req .code { font-weight: bold; }
+    /* --- Severity colors --- */
+    .sev-critical { color: #e11d48; }
+    .sev-high { color: #ea580c; }
+    .sev-medium { color: #d97706; }
+    .sev-low { color: #0284c7; }
+    .sev-info { color: #64748b; }
 
-    .finding { border: 1px solid #e2e8f0; border-left-width: 4pt; border-radius: 4pt; padding: 8pt; margin-bottom: 6pt; page-break-inside: avoid; }
-    .finding.critical { border-left-color: #e11d48; }
-    .finding.high { border-left-color: #ea580c; }
-    .finding.medium { border-left-color: #d97706; }
-    .finding.low { border-left-color: #0284c7; }
-    .finding.info { border-left-color: #94a3b8; }
-    .finding .head { font-weight: bold; font-size: 10pt; color: #0f172a; }
-    .finding .cat { font-size: 8pt; text-transform: uppercase; color: #64748b; }
-    .finding .desc { font-size: 9pt; color: #334155; margin-top: 3pt; }
-    .finding .rec { font-size: 9pt; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 5pt 7pt; border-radius: 3pt; margin-top: 4pt; }
-    .finding .kbv { font-size: 8pt; color: #64748b; margin-top: 3pt; }
-
-    .sev-badge { display: inline-block; font-size: 7pt; padding: 1pt 4pt; border-radius: 2pt; color: white; text-transform: uppercase; font-weight: bold; margin-right: 4pt; vertical-align: middle; }
+    .sev-badge {
+      display: inline-block;
+      font-size: 7pt;
+      padding: 1.5pt 5pt;
+      border-radius: 3pt;
+      color: white;
+      text-transform: uppercase;
+      font-weight: bold;
+      letter-spacing: 0.4pt;
+    }
     .sev-badge.critical { background: #e11d48; }
     .sev-badge.high { background: #ea580c; }
     .sev-badge.medium { background: #d97706; }
     .sev-badge.low { background: #0284c7; }
     .sev-badge.info { background: #94a3b8; }
 
-    footer.disclaimer { margin-top: 18pt; font-size: 8pt; color: #64748b; font-style: italic; border-top: 1px solid #e2e8f0; padding-top: 8pt; }
+    /* --- KPI grid (executive summary) --- */
+    .kpi-grid { display: flex; gap: 6pt; margin: 10pt 0 16pt 0; }
+    .kpi-card {
+      flex: 1;
+      border: 1px solid #e2e8f0;
+      border-radius: 6pt;
+      padding: 10pt;
+      text-align: center;
+      background: #fafbfc;
+    }
+    .kpi-card .num { font-size: 22pt; font-weight: bold; line-height: 1; }
+    .kpi-card .lbl { font-size: 8pt; text-transform: uppercase; color: #64748b; margin-top: 3pt; letter-spacing: 0.4pt; }
+
+    /* --- KBV block --- */
+    .kbv-req {
+      padding: 7pt 9pt;
+      border-radius: 4pt;
+      margin-bottom: 4pt;
+      font-size: 9pt;
+      border: 1px solid;
+      page-break-inside: avoid;
+    }
+    .kbv-req.ok { background: #ecfdf5; border-color: #a7f3d0; }
+    .kbv-req.fail { background: #fef2f2; border-color: #fecaca; }
+    .kbv-req .code { font-weight: bold; }
+    .kbv-req .descr { color: #475569; margin-top: 2pt; font-size: 8.5pt; }
+
+    /* --- Finding cards --- */
+    .finding {
+      border: 1px solid #e2e8f0;
+      border-left-width: 4pt;
+      border-radius: 4pt;
+      padding: 8pt 10pt;
+      margin-bottom: 6pt;
+      page-break-inside: avoid;
+    }
+    .finding.critical { border-left-color: #e11d48; background: #fff1f2; }
+    .finding.high { border-left-color: #ea580c; background: #fff7ed; }
+    .finding.medium { border-left-color: #d97706; background: #fffbeb; }
+    .finding.low { border-left-color: #0284c7; background: #f0f9ff; }
+    .finding.info { border-left-color: #94a3b8; background: #f8fafc; }
+    .finding .head { font-weight: bold; font-size: 10pt; color: #0f172a; margin-bottom: 2pt; }
+    .finding .cat { font-size: 8pt; text-transform: uppercase; color: #64748b; letter-spacing: 0.3pt; }
+    .finding .desc { font-size: 9pt; color: #334155; margin-top: 4pt; white-space: pre-line; }
+    .finding .rec {
+      font-size: 9pt;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid #a7f3d0;
+      padding: 5pt 8pt;
+      border-radius: 3pt;
+      margin-top: 6pt;
+    }
+    .finding .kbv { font-size: 8pt; color: #64748b; margin-top: 4pt; font-style: italic; }
+
+    /* --- Legal notices --- */
+    .legal-box {
+      background: #fffbeb;
+      border: 1px solid #fcd34d;
+      border-radius: 6pt;
+      padding: 10pt;
+      margin: 14pt 0;
+      font-size: 9pt;
+    }
+    .legal-box strong { color: #92400e; }
+
+    /* --- Meta header below cover --- */
+    .meta-strip {
+      background: #f8fafc;
+      border-left: 3pt solid #064e3b;
+      padding: 8pt 12pt;
+      margin-bottom: 16pt;
+      font-size: 9pt;
+      color: #475569;
+    }
+    .meta-strip strong { color: #0f172a; }
+
+    /* --- TOC --- */
+    .toc-list { list-style: none; padding-left: 0; }
+    .toc-list li { padding: 4pt 0; border-bottom: 1px dotted #cbd5e1; }
+    .toc-list .num { color: #64748b; font-size: 9pt; }
+
+    .page-break { page-break-after: always; }
+    .avoid-break { page-break-inside: avoid; }
   </style>
 </head>
 <body>
 
-<h1>MVZ Self-Scan Report</h1>
-<div class="meta">
-  <strong>Institution:</strong> {{ scan.institution_name }}<br>
-  <strong>Domain:</strong> {{ scan.target_domain }}<br>
-  <strong>Scan-ID:</strong> {{ scan.id }}<br>
-  <strong>Erstellt:</strong> {{ scan.created_at.strftime('%d.%m.%Y %H:%M:%S UTC') if scan.created_at }}<br>
-  <strong>Report generiert:</strong> {{ generated_at.strftime('%d.%m.%Y %H:%M:%S UTC') }}
+<!-- ============ COVER PAGE ============ -->
+<section class="cover">
+  <div class="brand">MVZ Self-Scan · Prüfbericht gemäß KBV §390 SGB V</div>
+  <h1>Sicherheits-<br>Prüfbericht</h1>
+  <div class="subtitle">Automatisiertes Self-Assessment der öffentlich erreichbaren Angriffsfläche</div>
+
+  <div class="domain-box">
+    <div class="label">Geprüfte Institution</div>
+    <div class="value" style="font-size: 14pt; font-family: 'DejaVu Sans', sans-serif; margin-bottom: 6pt;">{{ scan.institution_name }}</div>
+    <div class="label">Domain</div>
+    <div class="value">{{ scan.target_domain }}</div>
+  </div>
+
+  {% if dashboard and dashboard.has_data %}
+  <div class="grade-wrapper">
+    <div class="grade-letter">{{ dashboard.grade.letter }}</div>
+    <div class="grade-info">
+      <div class="label">Gesamtbewertung</div>
+      <h2>{{ dashboard.grade.label }}</h2>
+      <p>{{ dashboard.grade.description }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="footer-meta">
+    <div>
+      <strong>Scan-Zeitpunkt:</strong><br>
+      {{ scan.created_at.strftime('%d.%m.%Y %H:%M UTC') if scan.created_at }}
+    </div>
+    <div>
+      <strong>Report-Erstellung:</strong><br>
+      {{ generated_at.strftime('%d.%m.%Y %H:%M UTC') }}
+    </div>
+    <div>
+      <strong>Scan-ID:</strong><br>
+      {{ scan.id[:18] }}…
+    </div>
+  </div>
+</section>
+
+<!-- ============ INHALTSVERZEICHNIS ============ -->
+<h2>Inhaltsverzeichnis</h2>
+<ul class="toc-list">
+  <li><span class="num">1.</span> Management-Zusammenfassung</li>
+  <li><span class="num">2.</span> Rechtliche Grundlagen &amp; Scope</li>
+  <li><span class="num">3.</span> Methodik</li>
+  <li><span class="num">4.</span> Risikoprofil</li>
+  <li><span class="num">5.</span> KBV-IT-Sicherheitsrichtlinie §390 SGB V</li>
+  <li><span class="num">6.</span> Detailbefunde (nach Schweregrad sortiert)</li>
+  <li><span class="num">7.</span> Technischer Anhang</li>
+  <li><span class="num">8.</span> Rechtliche Hinweise &amp; Haftungsausschluss</li>
+</ul>
+
+<div class="meta-strip">
+  <strong>Institution:</strong> {{ scan.institution_name }} ·
+  <strong>Domain:</strong> {{ scan.target_domain }} ·
+  <strong>Scan-ID:</strong> {{ scan.id }} ·
+  <strong>Scan-Start:</strong> {{ scan.started_at.strftime('%d.%m.%Y %H:%M UTC') if scan.started_at }} ·
+  <strong>Scan-Ende:</strong> {{ scan.finished_at.strftime('%d.%m.%Y %H:%M UTC') if scan.finished_at }}
 </div>
 
-{% set counts = scan.result.severity_counts %}
+<!-- ============ 1. MANAGEMENT-ZUSAMMENFASSUNG ============ -->
+<h2>1. Management-Zusammenfassung</h2>
 
-<h2>Risikoprofil</h2>
-<div class="severity-grid">
-  <div class="sev-card sev-critical"><div class="num">{{ counts.get('critical', 0) }}</div><div class="lbl">Kritisch</div></div>
-  <div class="sev-card sev-high"><div class="num">{{ counts.get('high', 0) }}</div><div class="lbl">Hoch</div></div>
-  <div class="sev-card sev-medium"><div class="num">{{ counts.get('medium', 0) }}</div><div class="lbl">Mittel</div></div>
-  <div class="sev-card sev-low"><div class="num">{{ counts.get('low', 0) }}</div><div class="lbl">Niedrig</div></div>
-  <div class="sev-card sev-info"><div class="num">{{ counts.get('info', 0) }}</div><div class="lbl">Info</div></div>
+<p>
+  Dieser Bericht fasst die Ergebnisse eines automatisierten Sicherheits-Self-Assessments der öffentlich
+  erreichbaren Infrastruktur von <strong>{{ scan.institution_name }}</strong> ({{ scan.target_domain }})
+  zusammen. Das Assessment prüft die Domain und ihre sichtbaren Komponenten gegen die
+  Anforderungen der <strong>KBV IT-Sicherheitsrichtlinie nach §390 SGB V</strong> sowie gegen
+  etablierte Standards der Gesundheits-IT und des Datenschutzes.
+</p>
+
+{% if dashboard and dashboard.has_data %}
+<div class="kpi-grid">
+  <div class="kpi-card"><div class="num sev-critical">{{ dashboard.counts.get('critical', 0) }}</div><div class="lbl">Kritisch</div></div>
+  <div class="kpi-card"><div class="num sev-high">{{ dashboard.counts.get('high', 0) }}</div><div class="lbl">Hoch</div></div>
+  <div class="kpi-card"><div class="num sev-medium">{{ dashboard.counts.get('medium', 0) }}</div><div class="lbl">Mittel</div></div>
+  <div class="kpi-card"><div class="num sev-low">{{ dashboard.counts.get('low', 0) }}</div><div class="lbl">Niedrig</div></div>
+  <div class="kpi-card"><div class="num sev-info">{{ dashboard.counts.get('info', 0) }}</div><div class="lbl">Info</div></div>
 </div>
 
-{% if kbv %}
-<h2>KBV IT-Sicherheitsrichtlinie (§390 SGB V)</h2>
-<div class="kbv-summary">
-  <div class="kbv-pct {{ 'good' if kbv.totals.pct >= 80 else 'warn' if kbv.totals.pct >= 50 else 'bad' }}">{{ kbv.totals.pct }}% erfüllt</div>
-  <div style="font-size: 9pt; color: #64748b;">{{ kbv.totals.ok }} von {{ kbv.totals.total }} geprüften Anforderungen erfüllt.</div>
-</div>
-
-{% for a in kbv.anlagen %}
-<h3>{{ a.title }} — {{ a.ok_count }} ok, {{ a.fail_count }} offen</h3>
-{% for r in a.requirements %}
-<div class="kbv-req {{ r.status }}">
-  <span class="code">{{ 'OK' if r.status == 'ok' else '✗' }} · {{ r.code }}</span> — {{ r.title }}
-  {% if r.status == 'fail' %}<div style="color: #64748b; margin-top: 2pt;">{{ r.description }}</div>{% endif %}
-</div>
-{% endfor %}
-{% endfor %}
+<h3>Sofort-Priorität (Top-Risiken)</h3>
+{% if dashboard.top_risks %}
+<table style="margin-bottom: 8pt;">
+  <thead>
+    <tr><th style="width: 12%;">Schwere</th><th style="width: 20%;">Bereich</th><th>Befund</th></tr>
+  </thead>
+  <tbody>
+  {% for f in dashboard.top_risks %}
+    <tr>
+      <td><span class="sev-badge {{ f.severity }}">{{ f.severity }}</span></td>
+      <td>{{ f.category }}</td>
+      <td>{{ f.title }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Keine priorisierten Befunde.</p>
 {% endif %}
 
-<h2>Findings ({{ scan.result.findings | length }})</h2>
+<h3>KBV-Compliance-Score</h3>
+{% if kbv %}
+<p>
+  Von {{ kbv.totals.total }} automatisiert prüfbaren Anforderungen der KBV-IT-Sicherheitsrichtlinie
+  sind <strong>{{ kbv.totals.ok }}</strong> erfüllt ({{ kbv.totals.pct }}%),
+  <strong>{{ kbv.totals.fail }}</strong> offen.
+</p>
+{% endif %}
+{% endif %}
 
-{% if scan.result.findings %}
+<!-- ============ 2. RECHTLICHE GRUNDLAGEN ============ -->
+<h2>2. Rechtliche Grundlagen &amp; Scope</h2>
+<p>Der Bericht wurde nach folgenden rechtlichen und fachlichen Maßstäben strukturiert:</p>
+<table>
+  <thead><tr><th style="width: 35%;">Rechtsquelle / Norm</th><th>Inhalt</th></tr></thead>
+  <tbody>
+    <tr><td><strong>§390 SGB V</strong></td><td>IT-Sicherheit in der vertragsärztlichen Versorgung; Basis für die KBV-IT-Sicherheitsrichtlinie inkl. Anlagen 1–5.</td></tr>
+    <tr><td><strong>KBV IT-Sicherheits­richtlinie</strong></td><td>Verbindliche technische und organisatorische Anforderungen für Arztpraxen und MVZ, gestaffelt nach Praxisgröße.</td></tr>
+    <tr><td><strong>DSGVO Art. 32</strong></td><td>Technisch-organisatorische Maßnahmen (TOM) zum Schutz personenbezogener Daten.</td></tr>
+    <tr><td><strong>§203 StGB</strong></td><td>Schweigepflicht – Schutz von Patientengeheimnissen bei allen technischen Maßnahmen.</td></tr>
+    <tr><td><strong>§5 DDG / §55 RStV</strong></td><td>Impressumspflicht für Telemedien.</td></tr>
+    <tr><td><strong>HWG</strong></td><td>Heilmittelwerbegesetz – Anforderungen an Gesundheitswerbung auf der Website.</td></tr>
+    <tr><td><strong>BSI IT-Grundschutz</strong></td><td>Stand der Technik für Netzwerkhärtung, Patchmanagement, Segmentierung.</td></tr>
+    <tr><td><strong>gematik-Spezifikation</strong></td><td>Anforderungen an Konnektor, KIM und Telematikinfrastruktur.</td></tr>
+  </tbody>
+</table>
+
+<div class="legal-box">
+  <strong>Scope-Hinweis:</strong> Der Scan betrachtet ausschließlich von außen sichtbare, passive
+  Indikatoren der angegebenen Domain und deren unmittelbare Infrastruktur. Der Scan erfolgt ohne
+  aktive Ausnutzung von Schwachstellen (White-Hat-Self-Assessment) und ersetzt keinen autorisierten
+  Penetrationstest mit Zustimmung aller betroffenen Parteien.
+</div>
+
+<!-- ============ 3. METHODIK ============ -->
+<h2>3. Methodik</h2>
+<p>Die eingesetzte Scanner-Pipeline kombiniert folgende Prüfstufen:</p>
+<table>
+  <thead><tr><th style="width: 30%;">Prüfbereich</th><th>Verfahren</th></tr></thead>
+  <tbody>
+    <tr><td>DNS &amp; Namensauflösung</td><td>A/AAAA/MX/NS/CAA/TXT-Queries, DNSSEC, Reverse-DNS</td></tr>
+    <tr><td>E-Mail-Sicherheit</td><td>SPF, DMARC, DKIM-Selektor-Brute, MTA-STS, TLS-RPT, Mail-Provider-Detection</td></tr>
+    <tr><td>TLS / Transport</td><td>Lokaler TLS-Check + SSL Labs Deep Grade (Cipher Suites, Protokoll-Versionen, Zertifikatskette)</td></tr>
+    <tr><td>HTTP Security Headers</td><td>HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Cookie-Flags</td></tr>
+    <tr><td>Tech-Fingerprint &amp; CVE</td><td>Server-Banner-Parsing, Versionserkennung, NVD-CPE-Lookup, Enrichment via CISA KEV + EPSS</td></tr>
+    <tr><td>Angriffsfläche</td><td>crt.sh Subdomain-Enumeration, Subdomain-Walker, Shodan-Host-Lookup, aktiver Port-Scan (16 kritische Ports)</td></tr>
+    <tr><td>Exponierte Dateien</td><td>38 klassische Leak-Pfade (.git, .env, Backups, SQL-Dumps, SSH-Keys, CMS-Backups), SPA-Catch-All-gehärtet</td></tr>
+    <tr><td>Healthcare-spezifisch</td><td>KIM-DNS-Detection, TI-Konnektor-Probe (SecuNET/KoCoBox/CGM), PVS-Fingerprint, Patient-API-Check</td></tr>
+    <tr><td>DSGVO / Datenschutz</td><td>Tracker-Erkennung (GA, Meta Pixel, Hotjar, ...), Impressum-TMG-Validierung</td></tr>
+    <tr><td>Metadaten-Leaks</td><td>PDF-Metadaten (Author/Creator/GPS), Bild-EXIF (GPS, Kamera, Besitzer)</td></tr>
+    <tr><td>Credential Leaks</td><td>LeakCheck.io-Abgleich aller öffentlich gefundenen E-Mail-Adressen</td></tr>
+  </tbody>
+</table>
+
+<!-- ============ 4. RISIKOPROFIL ============ -->
+<h2>4. Risikoprofil</h2>
+{% if dashboard and dashboard.has_data %}
+<p>
+  Die Gesamtbewertung ergibt sich aus einer schweregrad-gewichteten Summe aller Befunde. Befunde
+  der Stufe <span class="sev-badge critical">critical</span> fließen mit Gewicht 25,
+  <span class="sev-badge high">high</span> mit 10, <span class="sev-badge medium">medium</span> mit 4,
+  <span class="sev-badge low">low</span> mit 1 ein. Ab einem einzelnen kritischen Befund wird die
+  Bewertung auf höchstens <strong>D</strong> begrenzt, ab zwei kritischen Befunden auf <strong>F</strong>.
+</p>
+<p style="margin-top: 10pt;">
+  <strong>Ergebnis:</strong> Grade <strong style="font-size: 14pt;">{{ dashboard.grade.letter }}</strong>
+  · Score {{ dashboard.score }}/100 · {{ dashboard.total_findings }} Befunde insgesamt
+</p>
+<p><strong>{{ dashboard.grade.label }}</strong> — {{ dashboard.grade.description }}</p>
+
+<h3>Befunde nach Bereich</h3>
+<table>
+  <thead><tr><th>Bereich</th><th style="width: 15%;">Anzahl</th><th style="width: 15%;">Schwerstes</th></tr></thead>
+  <tbody>
+    {% for cat in dashboard.categories %}
+    <tr>
+      <td>{{ cat.label }}</td>
+      <td>{{ cat.total }}</td>
+      <td><span class="sev-badge {{ cat.worst }}">{{ cat.worst }}</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<!-- ============ 5. KBV-COMPLIANCE ============ -->
+<h2>5. KBV-IT-Sicherheitsrichtlinie §390 SGB V</h2>
+
+{% if kbv %}
+<p>
+  Die KBV-IT-Sicherheitsrichtlinie ist in fünf Anlagen gegliedert und skaliert die Anforderungen
+  nach Praxisgröße. Die hier durchgeführte automatisierte Prüfung deckt Themen ab, die von außen
+  technisch messbar sind. Organisatorische Anforderungen (Schulungen, DSB-Bestellung, Verträge)
+  sind <strong>nicht</strong> Gegenstand dieses Berichts und müssen separat bewertet werden.
+</p>
+
+<p style="margin-top: 10pt;">
+  <strong>Compliance-Ergebnis:</strong> {{ kbv.totals.ok }}/{{ kbv.totals.total }} Anforderungen
+  erfüllt ({{ kbv.totals.pct }}%).
+</p>
+
+{% for a in kbv.anlagen %}
+<h3>{{ a.title }} <span style="font-weight: normal; font-size: 9pt; color: #64748b;">— {{ a.ok_count }} ok, {{ a.fail_count }} offen</span></h3>
+{% for r in a.requirements %}
+<div class="kbv-req {{ r.status }}">
+  <span class="code">{{ '✓' if r.status == 'ok' else '✗' }} {{ r.code }}</span> — {{ r.title }}
+  {% if r.status == 'fail' %}
+  <div class="descr">{{ r.description }}</div>
+  {% endif %}
+</div>
+{% endfor %}
+{% endfor %}
+{% else %}
+<p>Keine KBV-Auswertung verfügbar.</p>
+{% endif %}
+
+<!-- ============ 6. DETAILBEFUNDE ============ -->
+<h2>6. Detailbefunde</h2>
+<p>
+  Die folgenden Einzelbefunde sind nach Schweregrad absteigend sortiert und innerhalb eines Schweregrades
+  nach Bereich geordnet. Jeder Befund enthält Beschreibung, Handlungsempfehlung und — falls anwendbar —
+  einen Verweis auf die einschlägige KBV-Anlage.
+</p>
+
+{% for sev_key, sev_label in [('critical','Kritische Befunde'),('high','Hohe Befunde'),('medium','Mittlere Befunde'),('low','Niedrige Befunde'),('info','Informationen')] %}
+  {% set sev_findings = [] %}
   {% for f in scan.result.findings %}
+    {% if f.severity == sev_key %}{% set _ = sev_findings.append(f) %}{% endif %}
+  {% endfor %}
+  {% if sev_findings %}
+  <h3>{{ sev_label }} ({{ sev_findings | length }})</h3>
+  {% for f in sev_findings %}
   <div class="finding {{ f.severity }}">
-    <div class="head">
-      <span class="sev-badge {{ f.severity }}">{{ f.severity }}</span>
-      {{ f.title }}
-    </div>
     <div class="cat">{{ f.category }}</div>
+    <div class="head">{{ f.title }}</div>
     <div class="desc">{{ f.description }}</div>
-    {% if f.recommendation %}<div class="rec"><strong>Empfehlung:</strong> {{ f.recommendation }}</div>{% endif %}
+    {% if f.recommendation %}<div class="rec"><strong>→ Empfehlung:</strong> {{ f.recommendation }}</div>{% endif %}
     {% if f.kbv_ref %}<div class="kbv">{{ f.kbv_ref }}</div>{% endif %}
   </div>
   {% endfor %}
-{% else %}
-  <p>Keine Auffälligkeiten festgestellt.</p>
+  {% endif %}
+{% endfor %}
+
+<!-- ============ 7. TECHNISCHER ANHANG ============ -->
+<h2>7. Technischer Anhang</h2>
+<p>Der Anhang enthält die technischen Rohdaten des Scans — nützlich für IT-Dienstleister und zur Reproduzierbarkeit.</p>
+{% if scan.result.metadata %}
+<pre style="font-size: 7pt; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8pt; border-radius: 3pt; white-space: pre-wrap; word-break: break-all;">{{ scan.result.metadata | tojson(indent=2) }}</pre>
 {% endif %}
 
-<footer class="disclaimer">
-  Dieser Bericht wurde automatisiert mit MVZ Self-Scan erstellt und bildet ausschließlich
-  passive, von außen sichtbare Sicherheitsindikatoren ab. Er ersetzt keine Pentest-Beauftragung
-  und keine rechtsverbindliche KBV-Konformitätsbewertung. Die Zuordnung zu KBV-Anlagen ist
-  eine praxistaugliche Näherung — die finale Bewertung muss durch einen Fachkundigen erfolgen.
-</footer>
+<!-- ============ 8. HAFTUNGSAUSSCHLUSS ============ -->
+<h2>8. Rechtliche Hinweise &amp; Haftungsausschluss</h2>
+<div class="legal-box">
+  <p>
+    <strong>Automatisiertes Self-Assessment.</strong> Der Bericht wurde ohne manuelle Pentest-Aktivitäten
+    erstellt und bildet ausschließlich passive, von außen sichtbare Sicherheitsindikatoren ab.
+  </p>
+  <p style="margin-top: 6pt;">
+    <strong>Kein Ersatz für Penetrationstests.</strong> Er ersetzt weder eine Pentest-Beauftragung
+    durch eine qualifizierte Stelle noch eine rechtsverbindliche KBV-Konformitätsbewertung durch
+    einen benannten Prüfer.
+  </p>
+  <p style="margin-top: 6pt;">
+    <strong>KBV-Zuordnung ist Näherung.</strong> Die Zuordnung von Befunden zu Anlagen der
+    KBV-IT-Sicherheitsrichtlinie ist eine praxistaugliche Näherung des Tools und entbindet nicht
+    von einer fachlichen Bewertung durch den bestellten Datenschutzbeauftragten bzw. IT-Dienstleister.
+  </p>
+  <p style="margin-top: 6pt;">
+    <strong>Einwilligung / White-Hat.</strong> Der Scan erfolgt ausschließlich auf eigenen Domains
+    und Infrastruktur. Eine Prüfung fremder Systeme ohne ausdrückliche Zustimmung des Inhabers
+    kann strafbar sein (§202c StGB).
+  </p>
+  <p style="margin-top: 6pt;">
+    <strong>Haftung.</strong> Der Betreiber des Tools übernimmt keine Gewähr für Vollständigkeit,
+    Richtigkeit oder Aktualität der Befunde. Die Umsetzung der Empfehlungen liegt in der alleinigen
+    Verantwortung der Institution.
+  </p>
+</div>
+
+<p style="margin-top: 18pt; font-size: 8pt; color: #64748b; text-align: center;">
+  Erstellt durch MVZ Self-Scan am {{ generated_at.strftime('%d.%m.%Y um %H:%M UTC') }} ·
+  scan.zdkg.de · Open Source · MIT License
+</p>
 
 </body>
 </html>

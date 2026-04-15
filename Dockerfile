@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # WeasyPrint runtime deps for PDF rendering
     libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0 \
     fonts-dejavu-core \
+    # Pillow runtime deps for image EXIF parsing
+    libjpeg62-turbo zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
