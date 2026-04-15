@@ -27,11 +27,16 @@ CDX_URL = "https://web.archive.org/cdx/search/cdx"
 MAX_PROBES = 30
 
 
-INTERESTING_EXTENSIONS = (
+LEAK_EXTENSIONS = (
     ".sql", ".zip", ".tar", ".tar.gz", ".bak", ".old", ".env",
     ".conf", ".config", ".log", ".csv", ".xls", ".xlsx", ".doc",
     ".docx", ".json", ".xml", ".yml", ".yaml", ".pem", ".key",
 )
+# Document extensions — we collect these too but don't treat them as leaks;
+# they get handed to the pdf_metadata scanner for DSGVO analysis.
+DOC_EXTENSIONS = (".pdf",)
+
+INTERESTING_EXTENSIONS = LEAK_EXTENSIONS + DOC_EXTENSIONS
 
 
 def _fetch_urls(domain: str) -> list[str]:
@@ -117,18 +122,33 @@ def check_wayback(domain: str, result: ScanResult, step: Callable[[str, int], No
 
     if live_hits:
         result.metadata["wayback"]["live_hits"] = live_hits
-        result.add(Finding(
-            id="deep.wayback_live_leak",
-            title=f"{len(live_hits)} historische Datei(en) aus Wayback Machine sind noch live",
-            description=(
-                "Die Wayback Machine hat historische URLs dieser Domain indexiert, die "
-                "heute noch antworten. Typisch sind dies alte SQL-Dumps, Backup-Archive "
-                "oder Konfigurationsdateien, die nach einem Rewrite auf der Seite vergessen "
-                "wurden — ein klassisches Leak-Einfallstor."
-            ),
-            severity=Severity.HIGH,
-            category="Deep Scan",
-            evidence={"urls": [h["url"] for h in live_hits[:20]]},
-            recommendation="Jede dieser Dateien prüfen und — wenn nicht mehr gebraucht — entfernen oder mit 404/403 blockieren.",
-            kbv_ref="KBV IT-Sicherheit §390 SGB V — Anlage 2 (Datenminimierung)",
-        ))
+
+        leak_hits = [
+            h for h in live_hits
+            if any(h["url"].lower().endswith(ext) for ext in LEAK_EXTENSIONS)
+        ]
+        doc_hits = [
+            h for h in live_hits
+            if any(h["url"].lower().endswith(ext) for ext in DOC_EXTENSIONS)
+        ]
+
+        if leak_hits:
+            result.add(Finding(
+                id="deep.wayback_live_leak",
+                title=f"{len(leak_hits)} historische Leak-Datei(en) sind noch live",
+                description=(
+                    "Die Wayback Machine hat historische URLs dieser Domain indexiert, die "
+                    "heute noch antworten. Typisch sind dies alte SQL-Dumps, Backup-Archive "
+                    "oder Konfigurationsdateien, die nach einem Rewrite auf der Seite vergessen "
+                    "wurden — ein klassisches Leak-Einfallstor."
+                ),
+                severity=Severity.HIGH,
+                category="Deep Scan",
+                evidence={"urls": [h["url"] for h in leak_hits[:20]]},
+                recommendation="Jede dieser Dateien prüfen und — wenn nicht mehr gebraucht — entfernen oder mit 404/403 blockieren.",
+                kbv_ref="KBV IT-Sicherheit §390 SGB V — Anlage 2 (Datenminimierung)",
+            ))
+
+        if doc_hits:
+            # Handed to pdf_metadata at the end of the pipeline.
+            result.metadata["wayback"]["historical_live_pdfs"] = [h["url"] for h in doc_hits]

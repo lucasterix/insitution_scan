@@ -537,6 +537,7 @@ def run_osint_scan(
     check_mail_provider(domain, result, step)
     check_email_auth(domain, result, step)
     check_email_deep(domain, result, step)
+    crawl_site(domain, result, step)
     check_privacy(domain, result, step)
     check_healthcare(domain, result, step)
     check_http(domain, result, step)
@@ -548,16 +549,20 @@ def run_osint_scan(
     check_ip_intel(domain, result, step)
     check_exposed_files(domain, result, step)
     active_port_scan(domain, result, step)
+    check_banners(domain, result, step)
     check_vpn_endpoints(domain, result, step)
     check_robots(domain, result, step)
-    check_pdf_metadata(domain, result, step)
-    check_image_metadata(domain, result, step)
     check_tech_fingerprint(domain, result, step)
-    check_known_vulns(domain, result, step)
     harvest_and_check(domain, result, step)
 
     if deep_scan:
         run_deep_scan(domain, result, step)
+
+    # Metadata + CVE scanners run AFTER deep scan so they see wayback PDFs
+    # and any additional tech that deep scan uncovered.
+    check_pdf_metadata(domain, result, step)
+    check_image_metadata(domain, result, step)
+    check_known_vulns(domain, result, step)
 
     step("Abgeschlossen", 100)
 

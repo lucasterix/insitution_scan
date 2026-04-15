@@ -1,8 +1,12 @@
-"""Extract EXIF / metadata from images linked on the homepage.
+"""Extract EXIF / metadata from every same-domain image discovered.
 
-Practice photos often carry EXIF data with camera model, software name and
-sometimes GPS coordinates — the latter is DSGVO-relevant for medical sites
-because a "from home office" photo can leak the practice owner's address.
+Sources of image URLs:
+1. app/scanners/site_crawler.py → result.metadata["site_crawl"]["images"]
+   (same-domain images via BFS crawl of up to MAX_PAGES pages)
+2. Fallback: regex the homepage HTML only if the crawler did not run.
+
+Flags GPS coordinate leaks as HIGH (DSGVO Art. 5/32) and personal-name
+EXIF fields (Artist / Author / Copyright / CameraOwnerName) as MEDIUM.
 """
 from __future__ import annotations
 
@@ -15,8 +19,8 @@ import httpx
 from app.scanners.base import Finding, ScanResult, Severity
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
-MAX_IMAGES = 10
-MAX_IMG_BYTES = 5 * 1024 * 1024
+MAX_IMAGES = 30
+MAX_IMG_BYTES = 6 * 1024 * 1024
 
 IMG_LINK_RE = re.compile(
     r'(?:src|href)=["\']([^"\']+\.(?:jpg|jpeg|png|tif|tiff))["\']',
@@ -30,16 +34,54 @@ SENSITIVE_EXIF_KEYS = {
 }
 
 
+def _collect_urls(domain: str, result: ScanResult) -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def push(u: str) -> None:
+        if u and u not in seen:
+            seen.add(u)
+            urls.append(u)
+
+    site_crawl = result.metadata.get("site_crawl") or {}
+    for u in site_crawl.get("images") or []:
+        push(u)
+
+    if urls:
+        return urls
+
+    # Fallback: homepage-only regex
+    try:
+        with httpx.Client(
+            timeout=8.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
+        ) as client:
+            r = client.get(f"https://{domain}")
+            if r.status_code == 200 and "text/html" in r.headers.get("content-type", "").lower():
+                for m in IMG_LINK_RE.finditer(r.text[:500_000]):
+                    href = m.group(1)
+                    if href.startswith("http"):
+                        push(href)
+                    elif href.startswith("//"):
+                        push(f"https:{href}")
+                    elif href.startswith("/"):
+                        push(f"https://{domain}{href}")
+                    else:
+                        push(f"https://{domain}/{href}")
+    except httpx.HTTPError:
+        pass
+    return urls
+
+
 def _fetch(client: httpx.Client, url: str) -> bytes | None:
     try:
         r = client.get(url)
-        if r.status_code != 200:
-            return None
-        if len(r.content) > MAX_IMG_BYTES:
-            return None
-        return r.content
     except httpx.HTTPError:
         return None
+    if r.status_code != 200:
+        return None
+    if len(r.content) > MAX_IMG_BYTES:
+        return None
+    return r.content
 
 
 def _extract_exif(raw: bytes) -> dict:
@@ -47,7 +89,6 @@ def _extract_exif(raw: bytes) -> dict:
         from PIL import ExifTags, Image  # type: ignore[import-not-found]
     except ImportError:
         return {}
-
     try:
         with Image.open(io.BytesIO(raw)) as img:
             exif = img.getexif()
@@ -70,79 +111,56 @@ def _extract_exif(raw: bytes) -> dict:
                 else:
                     out[tag_name] = str(value)[:300]
             return out
-    except Exception:  # noqa: BLE001 — Pillow can raise on anything
+    except Exception:  # noqa: BLE001
         return {}
 
 
 def check_image_metadata(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("Bild-EXIF-Metadaten", 94)
 
-    try:
-        with httpx.Client(
-            timeout=8.0,
-            follow_redirects=True,
-            headers={"User-Agent": USER_AGENT},
-        ) as client:
-            r = client.get(f"https://{domain}")
-            if r.status_code != 200:
-                return
-            html = r.text[:500_000]
-
-            urls: list[str] = []
-            seen: set[str] = set()
-            for m in IMG_LINK_RE.finditer(html):
-                href = m.group(1)
-                if href.startswith("http"):
-                    url = href
-                elif href.startswith("//"):
-                    url = f"https:{href}"
-                elif href.startswith("/"):
-                    url = f"https://{domain}{href}"
-                else:
-                    url = f"https://{domain}/{href}"
-                if url in seen:
-                    continue
-                seen.add(url)
-                urls.append(url)
-                if len(urls) >= MAX_IMAGES:
-                    break
-
-            if not urls:
-                return
-
-            reports: list[dict] = []
-            sensitive_hits: list[dict] = []
-
-            for url in urls:
-                raw = _fetch(client, url)
-                if raw is None:
-                    continue
-                meta = _extract_exif(raw)
-                if not meta:
-                    continue
-                reports.append({"url": url, "exif_keys": list(meta.keys())})
-
-                for key in SENSITIVE_EXIF_KEYS:
-                    if key in meta:
-                        sensitive_hits.append({"url": url, "key": key, "value": meta[key]})
-    except httpx.HTTPError:
+    urls = _collect_urls(domain, result)
+    if not urls:
         return
+
+    reports: list[dict] = []
+    sensitive_hits: list[dict] = []
+
+    with httpx.Client(
+        timeout=10.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
+    ) as client:
+        for url in urls[:MAX_IMAGES]:
+            raw = _fetch(client, url)
+            if raw is None:
+                continue
+            meta = _extract_exif(raw)
+            if not meta:
+                continue
+            reports.append({"url": url, "exif_keys": list(meta.keys())})
+            for key in SENSITIVE_EXIF_KEYS:
+                if key in meta:
+                    sensitive_hits.append({"url": url, "key": key, "value": meta[key]})
 
     if not reports:
         return
 
-    result.metadata["image_exif"] = reports
+    result.metadata["image_exif"] = {
+        "total_candidates": len(urls),
+        "analyzed": len(reports),
+        "reports": reports,
+    }
 
     result.add(Finding(
         id="image.exif_scanned",
-        title=f"{len(reports)} Bild(er) mit EXIF-Metadaten analysiert",
-        description=f"Auf {len(reports)} von max. {MAX_IMAGES} geprüften Bildern wurden EXIF-Header gefunden.",
+        title=f"{len(reports)} von {len(urls)} Bildern mit EXIF-Metadaten analysiert",
+        description=(
+            "Der Site-Crawler hat site-weit nach Bildern gesucht (nicht nur auf der Homepage) "
+            "und jede Datei mit EXIF-Header analysiert."
+        ),
         severity=Severity.INFO,
         category="Metadaten",
-        evidence={"images": [r["url"] for r in reports]},
+        evidence={"images": [r["url"] for r in reports][:20]},
     ))
 
-    # Separate GPS leaks from the other personal hits because GPS is a much stronger signal.
     gps_hits = [h for h in sensitive_hits if "GPS" in h["key"]]
     personal_hits = [h for h in sensitive_hits if h["key"] in ("Artist", "XPAuthor", "Copyright", "CameraOwnerName")]
 
@@ -151,20 +169,20 @@ def check_image_metadata(domain: str, result: ScanResult, step: Callable[[str, i
             id="image.exif_gps_leaked",
             title=f"GPS-Koordinaten in {len(gps_hits)} Bild(ern) eingebettet",
             description=(
-                "Öffentliche Bilder tragen GPS-Koordinaten in ihren EXIF-Daten. "
-                "Das erlaubt es Angreifern den physischen Standort einer Praxis (oder "
-                "des Praxisinhabers) ohne Rückfrage zu ermitteln — für Home-Office-"
-                "Fotos ein DSGVO-Problem."
+                "Öffentliche Bilder tragen GPS-Koordinaten in ihren EXIF-Daten. Das erlaubt es "
+                "Angreifern, den physischen Standort einer Praxis (oder des Praxisinhabers bei "
+                "Home-Office-Fotos) ohne Rückfrage zu ermitteln — ein direktes DSGVO-Problem "
+                "und ein Risiko für Doxxing/Stalking."
             ),
             severity=Severity.HIGH,
             category="Metadaten",
-            evidence={"hits": gps_hits[:5]},
+            evidence={"hits": gps_hits[:10]},
             recommendation=(
-                "Vor dem Upload EXIF-Daten strippen (z.B. über `exiftool -all= *.jpg` "
-                "oder ImageOptim/ImageMagick). Im CMS idealerweise Upload-Plugin nutzen, "
-                "das EXIF automatisch entfernt."
+                "Vor dem Upload EXIF strippen (z.B. `exiftool -all= *.jpg` oder "
+                "ImageOptim/ImageMagick). Im CMS Upload-Plugin verwenden, das EXIF "
+                "automatisch entfernt."
             ),
-            kbv_ref="DSGVO Art. 5 (Datenminimierung) + Art. 32 (Technisch-organisatorische Maßnahmen)",
+            kbv_ref="DSGVO Art. 5 (Datenminimierung) + Art. 32 (TOM)",
         ))
 
     if personal_hits:
@@ -177,6 +195,6 @@ def check_image_metadata(domain: str, result: ScanResult, step: Callable[[str, i
             ),
             severity=Severity.MEDIUM,
             category="Metadaten",
-            evidence={"hits": personal_hits[:10]},
+            evidence={"hits": personal_hits[:20]},
             recommendation="EXIF-Autor/Copyright-Felder vor Upload leeren.",
         ))

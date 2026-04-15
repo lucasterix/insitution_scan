@@ -40,6 +40,20 @@ CPE_MAP: dict[str, list[tuple[str, str]]] = {
     "wordpress": [("wordpress", "wordpress")],
     "jquery": [("jquery", "jquery")],
     "bootstrap": [("getbootstrap", "bootstrap")],
+    # --- Banner-grab extractions from banner_grab.py ---
+    "banner.openssh": [("openbsd", "openssh")],
+    "banner.dropbear": [("dropbear_ssh_project", "dropbear_ssh"), ("matt_johnston", "dropbear_ssh")],
+    "banner.proftpd": [("proftpd", "proftpd")],
+    "banner.vsftpd": [("beasts", "vsftpd")],
+    "banner.filezilla": [("filezilla-project", "filezilla_server")],
+    "banner.sendmail": [("sendmail", "sendmail")],
+    "banner.exim": [("exim", "exim")],
+    "banner.dovecot": [("dovecot", "dovecot")],
+    "banner.iis": [("microsoft", "internet_information_services")],
+    "banner.apache_banner": [("apache", "http_server")],
+    "banner.nginx_banner": [("f5", "nginx"), ("nginx", "nginx")],
+    "banner.mariadb": [("mariadb", "mariadb")],
+    "banner.mysql": [("oracle", "mysql"), ("mysql", "mysql")],
 }
 
 
