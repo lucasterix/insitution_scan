@@ -139,6 +139,76 @@ def fetch_nvd_cve(cve_id: str) -> dict | None:
     return vulns[0].get("cve")
 
 
+def fetch_nvd_cves_for_cpe(cpe_name: str, limit: int = 50) -> list[dict]:
+    """Return CVEs affecting a CPE, sorted by published date descending.
+
+    Each entry is a flat dict: {id, description, cvss_score, cvss_severity,
+    published, last_modified}.
+    """
+    settings = get_settings()
+    headers = {"User-Agent": USER_AGENT}
+    if settings.nvd_api_key:
+        headers["apiKey"] = settings.nvd_api_key
+
+    try:
+        r = httpx.get(
+            NVD_URL,
+            params={
+                "cpeName": cpe_name,
+                "resultsPerPage": limit,
+                "startIndex": 0,
+            },
+            timeout=25.0,
+            headers=headers,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except (httpx.HTTPError, ValueError):
+        return []
+
+    out: list[dict] = []
+    for item in data.get("vulnerabilities", []):
+        cve = item.get("cve") or {}
+        cve_id = cve.get("id")
+        if not cve_id:
+            continue
+
+        descriptions = cve.get("descriptions", [])
+        description = next(
+            (d.get("value", "") for d in descriptions if d.get("lang") == "en"),
+            descriptions[0].get("value", "") if descriptions else "",
+        )
+
+        # Extract best available CVSS score (v3.1 > v3.0 > v2)
+        metrics = cve.get("metrics") or {}
+        cvss_score = None
+        cvss_severity = None
+        for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+            entries = metrics.get(key) or []
+            if not entries:
+                continue
+            primary = next((e for e in entries if e.get("type") == "Primary"), entries[0])
+            cvss_data = primary.get("cvssData") or {}
+            cvss_score = cvss_data.get("baseScore")
+            cvss_severity = cvss_data.get("baseSeverity") or primary.get("baseSeverity")
+            if cvss_score is not None:
+                break
+
+        out.append(
+            {
+                "id": cve_id,
+                "description": description[:500],
+                "cvss_score": cvss_score,
+                "cvss_severity": (cvss_severity or "").upper(),
+                "published": cve.get("published"),
+                "last_modified": cve.get("lastModified"),
+            }
+        )
+
+    out.sort(key=lambda c: c.get("published") or "", reverse=True)
+    return out
+
+
 def enrich_cves(cve_ids: list[str]) -> dict[str, dict[str, Any]]:
     """One-shot enrichment: for each CVE return KEV flag + EPSS score.
 

@@ -110,6 +110,13 @@ KBV_REQUIREMENTS: tuple[KBVRequirement, ...] = (
         description="Die TLS-Konfiguration erhält von SSL Labs mindestens Grade B.",
         finding_id_prefixes=("tls.ssllabs_weak_grade",),
     ),
+    KBVRequirement(
+        anlage=3,
+        code="A3.6",
+        title="Patch-Management der öffentlich erreichbaren Software",
+        description="Auf öffentlich erreichbaren Servern/Diensten sind keine bekannten CVEs identifizierbar.",
+        finding_id_prefixes=("vuln.",),
+    ),
 )
 
 
