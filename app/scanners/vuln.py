@@ -54,6 +54,29 @@ CPE_MAP: dict[str, list[tuple[str, str]]] = {
     "banner.nginx_banner": [("f5", "nginx"), ("nginx", "nginx")],
     "banner.mariadb": [("mariadb", "mariadb")],
     "banner.mysql": [("oracle", "mysql"), ("mysql", "mysql")],
+    # --- CMS core products ---
+    "drupal": [("drupal", "drupal")],
+    "typo3": [("typo3", "typo3")],
+    "joomla": [("joomla", "joomla!"), ("joomla", "joomla")],
+    # --- Popular WordPress plugins — CPE vendor/product varies in NVD ---
+    "wp_plugin.contact-form-7": [("rocklobster", "contact_form_7"), ("takayukister", "contact_form_7")],
+    "wp_plugin.woocommerce": [("woocommerce", "woocommerce"), ("automattic", "woocommerce")],
+    "wp_plugin.elementor": [("elementor", "website_builder"), ("elementor", "elementor")],
+    "wp_plugin.elementor-pro": [("elementor", "elementor_pro")],
+    "wp_plugin.yoast-seo": [("yoast", "yoast_seo"), ("yoast", "wordpress_seo")],
+    "wp_plugin.wordpress-seo": [("yoast", "yoast_seo")],
+    "wp_plugin.wordfence": [("wordfence", "wordfence")],
+    "wp_plugin.akismet": [("automattic", "akismet")],
+    "wp_plugin.jetpack": [("automattic", "jetpack")],
+    "wp_plugin.classic-editor": [("wordpress", "classic_editor")],
+    "wp_plugin.wp-file-manager": [("webdesi9", "file_manager")],
+    "wp_plugin.wp-super-cache": [("automattic", "wp_super_cache")],
+    "wp_plugin.wp-rocket": [("wp-rocket", "wp_rocket")],
+    "wp_plugin.updraftplus": [("updraftplus", "updraftplus")],
+    "wp_plugin.duplicator": [("snapcreek", "duplicator")],
+    "wp_plugin.ultimate-member": [("ultimatemember", "ultimate_member")],
+    "wp_plugin.really-simple-ssl": [("really-simple-plugins", "really_simple_ssl")],
+    "wp_plugin.essential-addons-for-elementor-lite": [("wpdeveloper", "essential_addons_for_elementor")],
 }
 
 

@@ -15,6 +15,8 @@ from app.integrations import abuseipdb, otx, shodan
 from app.integrations.ssllabs import SSLLabsClient, grade_to_severity
 from app.scanners.banner_grab import check_banners
 from app.scanners.base import Finding, ScanResult, Severity
+from app.scanners.cms_scan import check_cms
+from app.scanners.cookie_forensics import check_cookie_forensics
 from app.scanners.deep.runner import run_deep_scan
 from app.scanners.email_auth_deep import check_email_deep
 from app.scanners.site_crawler import crawl_site
@@ -553,7 +555,9 @@ def run_osint_scan(
     active_port_scan(domain, result, step)
     check_banners(domain, result, step)
     check_vpn_endpoints(domain, result, step)
+    check_cookie_forensics(domain, result, step)
     check_robots(domain, result, step)
+    check_cms(domain, result, step)
     check_tech_fingerprint(domain, result, step)
     harvest_and_check(domain, result, step)
 
