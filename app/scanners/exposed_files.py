@@ -2,6 +2,17 @@
 
 This is one of the highest-value checks: forgotten backups, .git directories
 and .env files are a common root cause of full-repo leaks on MVZ sites.
+
+False-positive defense is important: most modern MVZ sites are SPAs or CMS
+catch-all frontends that return HTTP 200 with the same homepage HTML for any
+unknown path. The scanner therefore:
+
+1. Fetches the `/` baseline once and stores its body.
+2. For each probed path, discards the response if the body is byte-identical
+   to the baseline (pure catch-all).
+3. For paths that should never return HTML (e.g. `.zip`, `.sql`, `.env`),
+   additionally rejects any response whose body looks like HTML.
+4. Applies a per-entry content hint on top of that when provided.
 """
 from __future__ import annotations
 
@@ -14,14 +25,23 @@ from app.scanners.base import Finding, ScanResult, Severity
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
 
-# Each entry: (path, severity, label, content_hint_substring or None)
-# content_hint is used to reduce false-positives from SPA catch-all 200s —
-# we only report the finding when the response actually looks like the expected content.
+# Extensions/paths that must NEVER legitimately return HTML.
+NON_HTML_PATTERNS = (
+    ".git/", ".svn/", ".hg/",
+    ".env", ".bak", "~", ".old",
+    ".sql", ".zip", ".tar", ".gz",
+    "id_rsa", "id_ed25519", ".ssh/",
+    ".ds_store", ".htpasswd", ".htaccess",
+    ".pem", ".key",
+    "composer.lock", "package.json", "composer.json", "yarn.lock",
+)
+
+# (path, severity, label, content_hint_substring or None)
 SENSITIVE_PATHS: list[tuple[str, Severity, str, str | None]] = [
     ("/.git/HEAD", Severity.CRITICAL, ".git Repository exponiert", "ref:"),
     ("/.git/config", Severity.CRITICAL, ".git Repository exponiert", "[core]"),
-    ("/.svn/entries", Severity.HIGH, ".svn Repository exponiert", None),
-    ("/.hg/hgrc", Severity.HIGH, ".hg Mercurial Repository exponiert", None),
+    ("/.svn/entries", Severity.HIGH, ".svn Repository exponiert", "dir"),
+    ("/.hg/hgrc", Severity.HIGH, ".hg Mercurial Repository exponiert", "["),
     ("/.env", Severity.CRITICAL, ".env Datei mit Credentials exponiert", "="),
     ("/.env.bak", Severity.CRITICAL, ".env.bak mit Credentials exponiert", "="),
     ("/.env.local", Severity.CRITICAL, ".env.local mit Credentials exponiert", "="),
@@ -41,12 +61,12 @@ SENSITIVE_PATHS: list[tuple[str, Severity, str, str | None]] = [
     ("/id_rsa", Severity.CRITICAL, "Privater SSH-Key exponiert", "BEGIN RSA PRIVATE KEY"),
     ("/id_ed25519", Severity.CRITICAL, "Privater SSH-Key exponiert", "BEGIN OPENSSH PRIVATE KEY"),
     ("/.ssh/id_rsa", Severity.CRITICAL, "Privater SSH-Key exponiert", "BEGIN"),
-    ("/.DS_Store", Severity.LOW, ".DS_Store verrät Dateistruktur", None),
+    ("/.DS_Store", Severity.LOW, ".DS_Store verrät Dateistruktur", "Bud1"),
     ("/.htaccess.bak", Severity.MEDIUM, ".htaccess Backup exponiert", None),
-    ("/.htpasswd", Severity.CRITICAL, ".htpasswd mit Hashes exponiert", ":"),
+    ("/.htpasswd", Severity.CRITICAL, ".htpasswd mit Hashes exponiert", "$"),
     ("/phpinfo.php", Severity.HIGH, "phpinfo() exponiert", "PHP Version"),
     ("/info.php", Severity.HIGH, "phpinfo() exponiert", "PHP Version"),
-    ("/test.php", Severity.LOW, "test.php auffindbar", None),
+    ("/test.php", Severity.LOW, "test.php auffindbar", "<?php"),
     ("/server-status", Severity.MEDIUM, "Apache server-status exponiert", "Apache Server Status"),
     ("/server-info", Severity.MEDIUM, "Apache server-info exponiert", "Apache Server Information"),
     ("/phpmyadmin/", Severity.HIGH, "phpMyAdmin erreichbar", "phpMyAdmin"),
@@ -63,14 +83,28 @@ TIMEOUT = 4.0
 MAX_WORKERS = 8
 
 
-def _probe(client: httpx.Client, domain: str, path: str) -> tuple[int, str]:
+def _looks_like_html(body: str) -> bool:
+    head = body[:500].lower().lstrip()
+    return head.startswith("<!doctype html") or head.startswith("<html") or "<body" in head
+
+
+def _expects_non_html(path: str) -> bool:
+    p = path.lower()
+    return any(pat in p for pat in NON_HTML_PATTERNS)
+
+
+def _probe(client: httpx.Client, url: str) -> tuple[int, str, str]:
     try:
-        r = client.get(f"https://{domain}{path}")
-        # Only peek at first ~2 KB to keep it light.
-        body = r.text[:2048] if "text" in r.headers.get("content-type", "") else ""
-        return r.status_code, body
+        r = client.get(url)
+        ct = r.headers.get("content-type", "").lower()
+        body = ""
+        if r.status_code == 200:
+            # Only decode as text when content-type suggests it; binary comparisons use bytes.
+            if "text" in ct or "json" in ct or "xml" in ct or not ct:
+                body = r.text[:4096]
+        return r.status_code, body, ct
     except httpx.HTTPError:
-        return 0, ""
+        return 0, "", ""
 
 
 def check_exposed_files(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
@@ -79,36 +113,65 @@ def check_exposed_files(domain: str, result: ScanResult, step: Callable[[str, in
     findings_to_add: list[Finding] = []
     exposed_paths: list[dict] = []
 
+    # Fetch baseline once so we can detect SPA catch-all 200s.
+    with httpx.Client(
+        timeout=TIMEOUT,
+        follow_redirects=False,
+        headers={"User-Agent": USER_AGENT},
+    ) as baseline_client:
+        baseline_status, baseline_body, baseline_ct = _probe(baseline_client, f"https://{domain}/")
+        # A nonsense path to see how the server reacts to unknown URLs.
+        _, baseline_404_body, _ = _probe(baseline_client, f"https://{domain}/__mvzscan_404_probe_{hex(abs(hash(domain)) % 0xFFFF)[2:]}__")
+
+    baselines = {baseline_body.strip(), baseline_404_body.strip()}
+    baselines.discard("")
+
     def task(entry: tuple[str, Severity, str, str | None]) -> None:
         path, sev, label, hint = entry
         with httpx.Client(
             timeout=TIMEOUT,
-            follow_redirects=False,  # redirects usually mean "not really there"
+            follow_redirects=False,
             headers={"User-Agent": USER_AGENT},
-            verify=True,
         ) as client:
-            status, body = _probe(client, domain, path)
+            status, body, ct = _probe(client, f"https://{domain}{path}")
 
         if status != 200:
             return
+
+        # Catch-all SPA defense: if body is identical to root / or the 404 probe, ignore.
+        if body.strip() in baselines:
+            return
+
+        # Non-HTML paths must not return HTML.
+        if _expects_non_html(path) and _looks_like_html(body):
+            return
+
+        # For paths that serve real HTML (phpMyAdmin, Adminer, server-status), the hint is
+        # stricter — we require it.
         if hint and hint.lower() not in body.lower():
             return
 
-        finding_id = f"exposed.{path.strip('/').replace('/', '_')}"
-        finding = Finding(
-            id=finding_id,
-            title=label,
-            description=f"HTTP 200 auf https://{domain}{path}. Der Inhalt passt zum erwarteten Format — die Datei ist öffentlich abrufbar.",
-            severity=sev if path != "/.well-known/security.txt" else Severity.INFO,
-            category="Exposed File",
-            evidence={"path": path, "status": status, "snippet": body[:300]},
-            recommendation=(
-                "Datei vom Webserver entfernen oder 404/403 zurückgeben. "
-                "Alle Webserver-Regeln auf 'Dot-Files blockieren' prüfen."
-            ),
-            kbv_ref="KBV IT-Sicherheit §390 SGB V — Anlage 2 (keine Offenlegung technischer Daten)",
+        finding_id = f"exposed.{path.strip('/').replace('/', '_').replace('.', '_')}"
+        is_info = path == "/.well-known/security.txt"
+        findings_to_add.append(
+            Finding(
+                id=finding_id,
+                title=label,
+                description=(
+                    f"HTTP 200 auf https://{domain}{path}. Der Inhalt entspricht dem erwarteten "
+                    f"Format ({ct or 'unbekannter Content-Type'}) und unterscheidet sich vom SPA-"
+                    "Catch-All — die Datei ist öffentlich abrufbar."
+                ),
+                severity=Severity.INFO if is_info else sev,
+                category="Exposed File",
+                evidence={"path": path, "status": status, "content_type": ct, "snippet": body[:300]},
+                recommendation=(
+                    "Datei vom Webserver entfernen oder 404/403 zurückgeben. "
+                    "Alle Webserver-Regeln auf 'Dot-Files blockieren' prüfen."
+                ),
+                kbv_ref="KBV IT-Sicherheit §390 SGB V — Anlage 2 (keine Offenlegung technischer Daten)",
+            )
         )
-        findings_to_add.append(finding)
         exposed_paths.append({"path": path, "severity": sev.value, "label": label})
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
@@ -119,7 +182,6 @@ def check_exposed_files(domain: str, result: ScanResult, step: Callable[[str, in
     for f in findings_to_add:
         result.add(f)
 
-    # Special handling: if /.well-known/security.txt is absent, emit a LOW info finding.
     sectxt_present = any(p["path"] == "/.well-known/security.txt" for p in exposed_paths)
     if not sectxt_present:
         result.add(Finding(
