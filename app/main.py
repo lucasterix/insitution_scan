@@ -21,24 +21,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MVZ Self-Scan", lifespan=lifespan)
 
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.secret_key,
-    session_cookie="mvzscan_session",
-    https_only=settings.app_env == "production",
-    same_site="lax",
-    max_age=60 * 60 * 24 * 14,  # 14 days
-)
-
 PUBLIC_PATH_PREFIXES = ("/login", "/logout", "/setup", "/static", "/healthz")
 
 
+# Register auth middleware FIRST so that after SessionMiddleware is added
+# below (and runs outermost), the request flow is Session -> Auth -> App.
 @app.middleware("http")
 async def require_login_middleware(request: Request, call_next):
     path = request.url.path
-    if any(path == p or path.startswith(p + "/") or path == p for p in PUBLIC_PATH_PREFIXES):
-        return await call_next(request)
-    if path in PUBLIC_PATH_PREFIXES:
+    if any(path == p or path.startswith(p + "/") for p in PUBLIC_PATH_PREFIXES):
         return await call_next(request)
 
     user_id = request.session.get(SESSION_USER_KEY)
@@ -50,6 +41,20 @@ async def require_login_middleware(request: Request, call_next):
         count = await user_count(session)
     target = "/setup" if count == 0 else "/login"
     return RedirectResponse(target, status_code=303)
+
+
+# SessionMiddleware MUST be added after the auth middleware so it ends up
+# outermost in the Starlette stack (add_middleware prepends). Result stack:
+#   Session -> Auth -> FastAPI app
+# Without this order, auth middleware runs before the session scope is set.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.secret_key,
+    session_cookie="mvzscan_session",
+    https_only=settings.app_env == "production",
+    same_site="lax",
+    max_age=60 * 60 * 24 * 14,  # 14 days
+)
 
 
 app.include_router(auth.router)
