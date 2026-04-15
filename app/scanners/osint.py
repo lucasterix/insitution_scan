@@ -24,8 +24,10 @@ from app.scanners.mail_provider import check_mail_provider
 from app.scanners.pdf_metadata import check_pdf_metadata
 from app.scanners.port_scan import active_port_scan
 from app.scanners.privacy import check_privacy
+from app.scanners.subdomain_deep import deep_scan_subdomains
 from app.scanners.subdomain_walker import walk_subdomains
 from app.scanners.tech_fingerprint import check_tech_fingerprint
+from app.scanners.vpn_endpoints import check_vpn_endpoints
 from app.scanners.vuln import check_known_vulns
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
@@ -542,9 +544,11 @@ def run_osint_scan(
     check_ssllabs(domain, result, step)
     check_subdomains(domain, result, step)
     walk_subdomains(domain, result, step)
+    deep_scan_subdomains(domain, result, step)
     check_ip_intel(domain, result, step)
     check_exposed_files(domain, result, step)
     active_port_scan(domain, result, step)
+    check_vpn_endpoints(domain, result, step)
     check_robots(domain, result, step)
     check_pdf_metadata(domain, result, step)
     check_image_metadata(domain, result, step)

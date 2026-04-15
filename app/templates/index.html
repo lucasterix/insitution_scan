@@ -1,45 +1,111 @@
 {% extends "base.html" %}
-{% block title %}Übersicht – MVZ Self-Scan{% endblock %}
+{% block title %}MVZ Self-Scan – Pentest-Self-Assessment{% endblock %}
 {% block content %}
-<div class="flex items-center justify-between mb-6">
-  <h1 class="text-2xl font-bold">Letzte Scans</h1>
-  <a href="/scans/new" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">+ Neuer Scan</a>
-</div>
 
-{% if not scans %}
-<div class="bg-white border border-slate-200 rounded-xl p-12 text-center">
-  <p class="text-slate-600 mb-4">Noch keine Scans durchgeführt.</p>
-  <a href="/scans/new" class="inline-block px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Ersten Scan starten</a>
-</div>
-{% else %}
-<div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-slate-50 text-slate-600 uppercase text-xs">
-      <tr>
-        <th class="text-left px-4 py-3">Institution</th>
-        <th class="text-left px-4 py-3">Domain</th>
-        <th class="text-left px-4 py-3">Status</th>
-        <th class="text-left px-4 py-3">Erstellt</th>
-        <th class="text-right px-4 py-3"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for s in scans %}
-      <tr class="border-t border-slate-100 hover:bg-slate-50">
-        <td class="px-4 py-3 font-medium">{{ s.institution_name }}</td>
-        <td class="px-4 py-3 font-mono text-slate-600">{{ s.target_domain }}</td>
-        <td class="px-4 py-3">
-          {% set color = {'queued': 'slate', 'running': 'amber', 'completed': 'emerald', 'failed': 'rose'}.get(s.status, 'slate') %}
-          <span class="inline-block px-2 py-0.5 rounded text-xs bg-{{ color }}-100 text-{{ color }}-700">{{ s.status }}</span>
-        </td>
-        <td class="px-4 py-3 text-slate-600">{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at }}</td>
-        <td class="px-4 py-3 text-right">
-          <a href="/scans/{{ s.id }}" class="text-emerald-600 hover:text-emerald-800">Details →</a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
+{# ============ HERO ============ #}
+<section class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white mb-10">
+  <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 20% 50%, rgba(255,255,255,0.3) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(255,255,255,0.2) 0%, transparent 50%);"></div>
+  <div class="relative px-8 py-14 md:py-20 max-w-4xl">
+    <div class="inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 rounded-full text-xs font-medium text-emerald-100 mb-6 backdrop-blur">
+      <span class="w-2 h-2 rounded-full bg-emerald-300 animate-pulse"></span>
+      Automatisiertes Self-Assessment nach KBV §390 SGB V
+    </div>
+    <h1 class="text-4xl md:text-5xl font-bold leading-tight mb-5">
+      Die Sicherheits-<br>Ist-Aufnahme deines MVZ.
+    </h1>
+    <p class="text-lg text-emerald-50 mb-8 max-w-2xl leading-relaxed">
+      Mehr als 25 Scanner-Module prüfen deine Domain passiv und aktiv
+      gegen die KBV-IT-Sicherheitsrichtlinie, DSGVO, Healthcare-Spezifika
+      (KIM, TI-Konnektor, PVS) und bekannte CVEs. Ergebnis: Dashboard +
+      prüffähiger PDF-Report für DSB und IT-Dienstleister.
+    </p>
+    <div class="flex flex-col sm:flex-row gap-3">
+      <a href="/scans/new"
+         class="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-white text-emerald-800 rounded-xl hover:bg-emerald-50 font-semibold shadow-lg transition">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 21l-4.35-4.35"/><circle cx="11" cy="11" r="8"/></svg>
+        Neuen Scan starten
+      </a>
+      <a href="#recent"
+         class="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-white/10 border border-white/30 text-white rounded-xl hover:bg-white/20 font-medium transition backdrop-blur">
+        Bisherige Scans
+      </a>
+    </div>
+  </div>
+</section>
+
+{# ============ FEATURES ============ #}
+<section class="mb-12">
+  <div class="text-center mb-8">
+    <h2 class="text-2xl font-bold text-slate-900">Was geprüft wird</h2>
+    <p class="text-slate-500 mt-2 max-w-2xl mx-auto">Jeder Scan führt diese Prüfungen automatisch durch. Deep-Scan ergänzt aktive Tests.</p>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for emoji, title, desc in [
+      ('🛡️', 'KBV §390 SGB V', 'Anlagen 1–5 mit automatischem Compliance-Score und prüffähigem Bericht.'),
+      ('✉️', 'E-Mail-Sicherheit', 'SPF, DMARC, DKIM (18 Selektoren), MTA-STS, TLS-RPT, Mail-Provider-Detection.'),
+      ('🔒', 'TLS & SSL Labs', 'Deep-Grade via SSL Labs + lokale Prüfung. Zertifikat, Cipher, Protokoll-Versionen.'),
+      ('🛑', 'CVE-Abgleich', 'NVD-CPE-Lookup + CISA KEV + EPSS-Score. Bekannte Exploits sofort sichtbar.'),
+      ('🏥', 'Healthcare-spezifisch', 'KIM-DNS, TI-Konnektor-Probe, PVS-Fingerprint (TurboMed/MEDISTAR/Albis/CGM).'),
+      ('⚖️', 'DSGVO / Impressum', 'Tracker ohne Consent, Cookie-Flags, TMG-Impressum-Vollständigkeit.'),
+      ('📡', 'Angriffsfläche', 'Subdomain-Discovery, Shodan-Host-Lookup, aktiver Port-Scan (16 Ports).'),
+      ('📂', 'Exposed Files', '38 Leak-Pfade (.git, .env, Backups, SQL-Dumps, phpMyAdmin).'),
+      ('🧾', 'Metadaten-Leaks', 'PDF-/Bild-EXIF: Author, Creator, GPS-Koordinaten.'),
+    ] %}
+    <div class="group bg-white border border-slate-200 rounded-2xl p-5 hover:border-emerald-300 hover:shadow-md transition">
+      <div class="text-3xl mb-3">{{ emoji }}</div>
+      <h3 class="font-semibold text-slate-900 mb-1">{{ title }}</h3>
+      <p class="text-sm text-slate-600 leading-relaxed">{{ desc }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+{# ============ RECENT SCANS ============ #}
+<section id="recent">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-2xl font-bold text-slate-900">Letzte Scans</h2>
+    <a href="/scans/new" class="text-sm text-emerald-600 hover:text-emerald-800 font-medium">+ Neuer Scan</a>
+  </div>
+
+  {% if not scans %}
+  <div class="bg-white border border-dashed border-slate-300 rounded-2xl p-12 text-center">
+    <div class="text-5xl mb-3">🔍</div>
+    <h3 class="font-semibold text-slate-900 mb-2">Noch keine Scans durchgeführt</h3>
+    <p class="text-slate-500 text-sm mb-5">Starte deinen ersten Scan, um die Sicherheits-Baseline deiner Domain zu ermitteln.</p>
+    <a href="/scans/new" class="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-medium shadow-sm">
+      Ersten Scan starten
+    </a>
+  </div>
+  {% else %}
+  <div class="grid gap-3">
+    {% for s in scans %}
+      {% set color = {'queued': 'slate', 'running': 'amber', 'completed': 'emerald', 'failed': 'rose'}.get(s.status, 'slate') %}
+      <a href="/scans/{{ s.id }}" class="block bg-white border border-slate-200 rounded-2xl p-5 hover:border-emerald-300 hover:shadow-md transition group">
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 rounded-xl bg-{{ color }}-100 text-{{ color }}-700 flex items-center justify-center font-bold flex-shrink-0">
+            {% if s.status == 'completed' %}✓
+            {% elif s.status == 'running' %}⚡
+            {% elif s.status == 'failed' %}✗
+            {% else %}⋯{% endif %}
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="font-semibold text-slate-900 truncate">{{ s.institution_name }}</div>
+              {% if s.deep_scan %}<span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-700">Deep</span>{% endif %}
+              <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-{{ color }}-100 text-{{ color }}-700">{{ s.status }}</span>
+            </div>
+            <div class="text-xs text-slate-500 mt-0.5 font-mono truncate">{{ s.target_domain }}</div>
+          </div>
+          <div class="hidden sm:block text-right text-xs text-slate-500 flex-shrink-0">
+            {{ s.created_at.strftime('%d.%m.%Y') if s.created_at }}<br>
+            {{ s.created_at.strftime('%H:%M') if s.created_at }}
+          </div>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="text-slate-400 group-hover:text-emerald-600 transition flex-shrink-0"><path d="m9 18 6-6-6-6"/></svg>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
 {% endblock %}

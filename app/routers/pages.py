@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user
 from app.compliance.analysis import build_kbv_summary
 from app.compliance.dashboard import build_dashboard
 from app.db import get_session
@@ -18,16 +19,22 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
 
+async def _tpl(request: Request, session: AsyncSession, template: str, ctx: dict) -> HTMLResponse:
+    user = await get_current_user(request, session)
+    ctx["current_user"] = user
+    return templates.TemplateResponse(request, template, ctx)
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
     result = await session.execute(select(Scan).order_by(Scan.created_at.desc()).limit(20))
     scans = result.scalars().all()
-    return templates.TemplateResponse(request, "index.html", {"scans": scans})
+    return await _tpl(request, session, "index.html", {"scans": scans})
 
 
 @router.get("/scans/new", response_class=HTMLResponse)
-async def new_scan_form(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse(request, "scan_new.html", {})
+async def new_scan_form(request: Request, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
+    return await _tpl(request, session, "scan_new.html", {})
 
 
 @router.post("/scans")
@@ -88,8 +95,9 @@ async def scan_detail(
         raise HTTPException(status_code=404, detail="Scan nicht gefunden")
     kbv = build_kbv_summary(scan.result)
     dashboard = build_dashboard(scan.result)
-    return templates.TemplateResponse(
-        request, "scan_detail.html", {"scan": scan, "kbv": kbv, "dashboard": dashboard}
+    return await _tpl(
+        request, session, "scan_detail.html",
+        {"scan": scan, "kbv": kbv, "dashboard": dashboard},
     )
 
 

@@ -8,26 +8,52 @@
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body class="bg-slate-50 text-slate-900 min-h-screen">
-  <header class="bg-white border-b border-slate-200">
-    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2">
-        <span class="inline-block w-8 h-8 bg-emerald-600 text-white rounded-lg flex items-center justify-center font-bold">S</span>
-        <span class="font-semibold text-lg">MVZ Self-Scan</span>
+<body class="{% block body_class %}bg-slate-50{% endblock %} text-slate-900 min-h-screen flex flex-col">
+  {% set hide_nav = hide_nav|default(false) %}
+  {% if not hide_nav %}
+  <header class="bg-white/80 backdrop-blur border-b border-slate-200 sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2.5 group">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-700 text-white flex items-center justify-center shadow-sm group-hover:shadow-md transition">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <div>
+          <div class="font-bold text-slate-900 leading-none">MVZ Self-Scan</div>
+          <div class="text-[10px] text-slate-500 leading-none mt-0.5 uppercase tracking-wider">Pentest-Self-Assessment</div>
+        </div>
       </a>
-      <nav class="flex items-center gap-4">
-        <a href="/" class="text-slate-600 hover:text-slate-900">Übersicht</a>
-        <a href="/scans/new" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Neuer Scan</a>
+      <nav class="flex items-center gap-2">
+        <a href="/" class="hidden sm:inline px-3 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition">Übersicht</a>
+        <a href="/scans/new" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium shadow-sm transition">
+          + Neuer Scan
+        </a>
+        {% if current_user %}
+        <div class="relative ml-2 group">
+          <button class="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition">
+            <div class="w-8 h-8 rounded-full bg-slate-200 text-slate-700 font-bold flex items-center justify-center text-sm">
+              {{ (current_user.display_name or current_user.email)[0] | upper }}
+            </div>
+          </button>
+          <div class="absolute right-0 mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition">
+            <div class="px-4 py-3 border-b border-slate-100">
+              <div class="font-semibold text-sm text-slate-900 truncate">{{ current_user.display_name or 'Admin' }}</div>
+              <div class="text-xs text-slate-500 truncate">{{ current_user.email }}</div>
+            </div>
+            <a href="/logout" class="block px-4 py-2.5 text-sm text-rose-600 hover:bg-rose-50">Abmelden</a>
+          </div>
+        </div>
+        {% endif %}
       </nav>
     </div>
   </header>
+  {% endif %}
 
-  <main class="max-w-6xl mx-auto px-4 py-8">
+  <main class="flex-1 max-w-6xl w-full mx-auto px-4 py-8">
     {% block content %}{% endblock %}
   </main>
 
-  <footer class="max-w-6xl mx-auto px-4 py-8 text-center text-sm text-slate-500">
-    Nur eigene Systeme scannen. White-Hat-Self-Assessment für MVZ.
+  <footer class="max-w-6xl mx-auto px-4 py-8 text-center text-xs text-slate-500">
+    Nur eigene Systeme scannen · White-Hat-Self-Assessment für MVZ · KBV §390 SGB V
   </footer>
 </body>
 </html>

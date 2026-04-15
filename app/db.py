@@ -32,3 +32,6 @@ async def init_db() -> None:
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS context JSON",
         ):
             await conn.execute(text(ddl))
+
+        # User table columns are created by Base.metadata.create_all already.
+        # No migrations needed yet.
