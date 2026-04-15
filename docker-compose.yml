@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scan
+      POSTGRES_PASSWORD: scan
+      POSTGRES_DB: scan
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scan"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    environment:
+      APP_ENV: development
+      SECRET_KEY: dev-secret
+      DATABASE_URL: postgresql+asyncpg://scan:scan@postgres:5432/scan
+      REDIS_URL: redis://redis:6379/0
+      PUBLIC_BASE_URL: http://localhost:8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://scan:scan@postgres:5432/scan
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+
+volumes:
+  pgdata:

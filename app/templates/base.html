@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}MVZ Self-Scan{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <span class="inline-block w-8 h-8 bg-emerald-600 text-white rounded-lg flex items-center justify-center font-bold">S</span>
+        <span class="font-semibold text-lg">MVZ Self-Scan</span>
+      </a>
+      <nav class="flex items-center gap-4">
+        <a href="/" class="text-slate-600 hover:text-slate-900">Übersicht</a>
+        <a href="/scans/new" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Neuer Scan</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="max-w-6xl mx-auto px-4 py-8 text-center text-sm text-slate-500">
+    Nur eigene Systeme scannen. White-Hat-Self-Assessment für MVZ.
+  </footer>
+</body>
+</html>

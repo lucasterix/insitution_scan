@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Übersicht – MVZ Self-Scan{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Letzte Scans</h1>
+  <a href="/scans/new" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">+ Neuer Scan</a>
+</div>
+
+{% if not scans %}
+<div class="bg-white border border-slate-200 rounded-xl p-12 text-center">
+  <p class="text-slate-600 mb-4">Noch keine Scans durchgeführt.</p>
+  <a href="/scans/new" class="inline-block px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Ersten Scan starten</a>
+</div>
+{% else %}
+<div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 text-slate-600 uppercase text-xs">
+      <tr>
+        <th class="text-left px-4 py-3">Institution</th>
+        <th class="text-left px-4 py-3">Domain</th>
+        <th class="text-left px-4 py-3">Status</th>
+        <th class="text-left px-4 py-3">Erstellt</th>
+        <th class="text-right px-4 py-3"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in scans %}
+      <tr class="border-t border-slate-100 hover:bg-slate-50">
+        <td class="px-4 py-3 font-medium">{{ s.institution_name }}</td>
+        <td class="px-4 py-3 font-mono text-slate-600">{{ s.target_domain }}</td>
+        <td class="px-4 py-3">
+          {% set color = {'queued': 'slate', 'running': 'amber', 'completed': 'emerald', 'failed': 'rose'}.get(s.status, 'slate') %}
+          <span class="inline-block px-2 py-0.5 rounded text-xs bg-{{ color }}-100 text-{{ color }}-700">{{ s.status }}</span>
+        </td>
+        <td class="px-4 py-3 text-slate-600">{{ s.created_at.strftime('%Y-%m-%d %H:%M') if s.created_at }}</td>
+        <td class="px-4 py-3 text-right">
+          <a href="/scans/{{ s.id }}" class="text-emerald-600 hover:text-emerald-800">Details →</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
