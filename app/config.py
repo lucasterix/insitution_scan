@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     otx_api_key: str = ""
     abuseipdb_api_key: str = ""
     nvd_api_key: str = ""  # optional; NVD works without but gives higher rate limit
+    securitytrails_api_key: str = ""
+    virustotal_api_key: str = ""
+    hunter_api_key: str = ""
 
 
 @lru_cache

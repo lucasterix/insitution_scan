@@ -159,6 +159,48 @@ KBV_REQUIREMENTS: tuple[KBVRequirement, ...] = (
         description="Öffentliche PDFs (Patientenaufklärung, Preislisten etc.) enthalten keine Klarnamen oder Standort-Metadaten.",
         finding_id_prefixes=("pdf.author_leaked",),
     ),
+    KBVRequirement(
+        anlage=1,
+        code="A1.6",
+        title="Vollständiges TMG/DDG-Impressum",
+        description="Das Impressum enthält alle nach §5 DDG + HWG + Berufsordnung erforderlichen Angaben (Anschrift, Kammer, Berufsbezeichnung, Aufsicht).",
+        finding_id_prefixes=("privacy.impressum_missing", "privacy.impressum_incomplete"),
+    ),
+    KBVRequirement(
+        anlage=2,
+        code="A2.6",
+        title="Keine DSGVO-relevanten Tracker ohne Consent",
+        description="Google Analytics, Meta Pixel und vergleichbare Tracker werden nicht ohne aktive Einwilligung geladen.",
+        finding_id_prefixes=("privacy.tracker.",),
+    ),
+    KBVRequirement(
+        anlage=2,
+        code="A2.7",
+        title="Cookie-Security-Flags gesetzt",
+        description="Alle Cookies werden mit Secure, HttpOnly und SameSite ausgeliefert.",
+        finding_id_prefixes=("privacy.cookie_flags_missing",),
+    ),
+    KBVRequirement(
+        anlage=4,
+        code="A4.1",
+        title="TI-Konnektor nicht aus dem Internet erreichbar",
+        description="Konnektor-Web-UIs (SecuNET, KoCoBox, CGM) sind nicht von außen erreichbar.",
+        finding_id_prefixes=("healthcare.connector.",),
+    ),
+    KBVRequirement(
+        anlage=4,
+        code="A4.2",
+        title="Keine unauthentisierten Patienten-/Medizin-APIs",
+        description="APIs für Patienten-, Termin- oder Medizin-Daten sind nicht ohne Authentifizierung öffentlich erreichbar.",
+        finding_id_prefixes=("healthcare.api_exposed.",),
+    ),
+    KBVRequirement(
+        anlage=5,
+        code="A5.1",
+        title="Korrekt aufgebaute TI/KIM-Infrastruktur (Positiv-Signal)",
+        description="KIM-DNS-Einträge sind vorhanden (positiv) und keine TI-Komponente ist öffentlich erreichbar.",
+        finding_id_prefixes=(),  # This is a positive requirement; status stays 'ok' unless connector hits exist.
+    ),
 )
 
 

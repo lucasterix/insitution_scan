@@ -76,6 +76,37 @@ SENSITIVE_KEYWORDS = {
     "alt": Severity.LOW,
     "tmp": Severity.MEDIUM,
     "temp": Severity.MEDIUM,
+    # --- Healthcare-specific ---
+    "kim": Severity.HIGH,            # KIM mail gateway should be internal
+    "konnektor": Severity.CRITICAL,  # TI-Konnektor web UI must never be public
+    "ti": Severity.MEDIUM,           # Telematik prefix
+    "pvs": Severity.HIGH,            # Praxis-Verwaltungssystem
+    "praxis": Severity.INFO,
+    "praxissoftware": Severity.HIGH,
+    "termine": Severity.INFO,
+    "termin": Severity.INFO,
+    "patienten": Severity.INFO,
+    "patient": Severity.INFO,
+    "befunde": Severity.HIGH,
+    "befund": Severity.HIGH,
+    "rezept": Severity.MEDIUM,
+    "erezept": Severity.MEDIUM,
+    "karte": Severity.MEDIUM,
+    "egk": Severity.MEDIUM,          # elektronische Gesundheitskarte
+    "hba": Severity.MEDIUM,          # Heilberufsausweis
+    "samedi": Severity.INFO,
+    "doctolib": Severity.INFO,
+    "jameda": Severity.INFO,
+    "cgm": Severity.INFO,
+    "medistar": Severity.HIGH,
+    "turbomed": Severity.HIGH,
+    "albis": Severity.HIGH,
+    "duria": Severity.HIGH,
+    "tomedo": Severity.HIGH,
+    "quincy": Severity.HIGH,
+    "secunet": Severity.CRITICAL,    # SecuNET Konnektor
+    "kocobox": Severity.CRITICAL,    # KoCoBox
+    "gematik": Severity.MEDIUM,
 }
 
 
