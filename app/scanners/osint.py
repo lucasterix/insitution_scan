@@ -14,6 +14,7 @@ import tldextract
 from app.integrations import abuseipdb, otx, shodan
 from app.integrations.ssllabs import SSLLabsClient, grade_to_severity
 from app.scanners.base import Finding, ScanResult, Severity
+from app.scanners.email_harvest import harvest_and_check
 from app.scanners.tech_fingerprint import check_tech_fingerprint
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
@@ -523,6 +524,7 @@ def run_osint_scan(domain: str, on_progress: Callable[[str, int], None] | None =
     check_ip_intel(domain, result, step)
     check_robots(domain, result, step)
     check_tech_fingerprint(domain, result, step)
+    harvest_and_check(domain, result, step)
     step("Abgeschlossen", 100)
 
     return result.to_dict()
