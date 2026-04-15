@@ -139,15 +139,19 @@ def _probe_connector_paths(domain: str, result: ScanResult, baselines: set[str])
     found: list[dict] = []
 
     # Content hints — the real connector UIs contain product-specific strings.
-    # Without a hint we fall back to "must not be a catch-all and must not look
-    # like the generic homepage body".
-    HINTS: dict[str, str] = {
-        "/cetp/services/": "cetp",
-        "/cetp-services/": "cetp",
-        "/kocobox/": "kocobox",
-        "/secunet/": "secunet",
-        "/rise/": "rise",
-        "/cgm/": "cgm",
+    # Every path must have at least one hint so SPA catch-alls cannot produce
+    # false positives. Multiple acceptable strings per path handled via tuple.
+    HINTS: dict[str, tuple[str, ...]] = {
+        "/cetp/services/": ("cetp",),
+        "/cetp-services/": ("cetp",),
+        "/kocobox/": ("kocobox",),
+        "/secunet/": ("secunet",),
+        "/rise/": ("rise konnektor", "rise-konnektor"),
+        "/cgm/": ("compugroup", "cgm konnektor"),
+        "/management": ("konnektor", "connector"),
+        "/management/login": ("konnektor", "connector"),
+        "/konnektor/": ("konnektor",),
+        "/adminkonsole/": ("konnektor", "adminkonsole"),
     }
 
     def task(entry: tuple[str, str]) -> dict | None:
@@ -176,9 +180,12 @@ def _probe_connector_paths(domain: str, result: ScanResult, baselines: set[str])
                 if is_catchall(body, baselines):
                     return None
 
-                # If we have a content hint, require it in the body.
-                hint = HINTS.get(path)
-                if hint and hint not in body.lower():
+                # Every path must have at least one matching content hint.
+                hints = HINTS.get(path, ())
+                if not hints:
+                    return None
+                body_lower = body.lower()
+                if not any(h in body_lower for h in hints):
                     return None
 
                 return {
