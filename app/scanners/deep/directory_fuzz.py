@@ -90,11 +90,14 @@ def _probe(client: httpx.Client, base: str, word: str) -> dict | None:
     except httpx.HTTPError:
         return None
     if r.status_code in (401, 403):
-        return {"path": f"/{word}", "status": r.status_code, "body_len": 0, "ct": r.headers.get("content-type", "")}
+        return {"path": f"/{word}", "status": r.status_code, "body": "", "ct": r.headers.get("content-type", "")}
     if r.status_code != 200:
         return None
-    body = r.text[:4096] if "text" in r.headers.get("content-type", "").lower() else ""
-    return {"path": f"/{word}", "status": r.status_code, "body": body, "ct": r.headers.get("content-type", "")}
+    # Pass the full text so baseline defense can compare against the full
+    # homepage fingerprint (SPAs return identical bodies across paths).
+    ct = r.headers.get("content-type", "").lower()
+    body = r.text if "text" in ct or "json" in ct or not ct else ""
+    return {"path": f"/{word}", "status": r.status_code, "body": body, "ct": ct}
 
 
 def check_directory_fuzz(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
