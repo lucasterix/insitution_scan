@@ -18,6 +18,7 @@ import dns.exception
 import dns.resolver
 import httpx
 
+from app.scanners._baseline import fetch_baselines, is_catchall
 from app.scanners.base import Finding, ScanResult, Severity
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
@@ -134,8 +135,20 @@ def _check_kim(domain: str, result: ScanResult) -> None:
         ))
 
 
-def _probe_connector_paths(domain: str, result: ScanResult) -> None:
+def _probe_connector_paths(domain: str, result: ScanResult, baselines: set[str]) -> None:
     found: list[dict] = []
+
+    # Content hints — the real connector UIs contain product-specific strings.
+    # Without a hint we fall back to "must not be a catch-all and must not look
+    # like the generic homepage body".
+    HINTS: dict[str, str] = {
+        "/cetp/services/": "cetp",
+        "/cetp-services/": "cetp",
+        "/kocobox/": "kocobox",
+        "/secunet/": "secunet",
+        "/rise/": "rise",
+        "/cgm/": "cgm",
+    }
 
     def task(entry: tuple[str, str]) -> dict | None:
         path, label = entry
@@ -146,16 +159,36 @@ def _probe_connector_paths(domain: str, result: ScanResult) -> None:
                 headers={"User-Agent": USER_AGENT},
             ) as client:
                 r = client.get(f"https://{domain}{path}")
-                if r.status_code in (200, 401, 403):
+                if r.status_code not in (200, 401, 403):
+                    return None
+                body = r.text[:4096] if "text" in r.headers.get("content-type", "").lower() else ""
+
+                # 401/403 responses are interesting even without body match — they still indicate the app exists.
+                if r.status_code in (401, 403):
                     return {
                         "path": path,
                         "status": r.status_code,
                         "label": label,
                         "server": r.headers.get("server", ""),
                     }
+
+                # 200 case: reject SPA catch-all.
+                if is_catchall(body, baselines):
+                    return None
+
+                # If we have a content hint, require it in the body.
+                hint = HINTS.get(path)
+                if hint and hint not in body.lower():
+                    return None
+
+                return {
+                    "path": path,
+                    "status": r.status_code,
+                    "label": label,
+                    "server": r.headers.get("server", ""),
+                }
         except httpx.HTTPError:
             return None
-        return None
 
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = [ex.submit(task, e) for e in TI_CONNECTOR_PATHS]
@@ -241,7 +274,7 @@ def _check_pvs_fingerprint(domain: str, result: ScanResult) -> None:
         ))
 
 
-def _probe_health_paths(domain: str, result: ScanResult) -> None:
+def _probe_health_paths(domain: str, result: ScanResult, baselines: set[str]) -> None:
     found_paths: list[dict] = []
 
     def task(entry: tuple[str, Severity, str]) -> dict | None:
@@ -253,11 +286,14 @@ def _probe_health_paths(domain: str, result: ScanResult) -> None:
                 headers={"User-Agent": USER_AGENT},
             ) as client:
                 r = client.get(f"https://{domain}{path}")
-                if r.status_code == 200:
-                    return {"path": path, "status": r.status_code, "sev": sev.value, "label": label, "content_type": r.headers.get("content-type", "")}
+                if r.status_code != 200:
+                    return None
+                body = r.text[:4096] if "text" in r.headers.get("content-type", "").lower() else ""
+                if is_catchall(body, baselines):
+                    return None
+                return {"path": path, "status": r.status_code, "sev": sev.value, "label": label, "content_type": r.headers.get("content-type", "")}
         except httpx.HTTPError:
             return None
-        return None
 
     with ThreadPoolExecutor(max_workers=6) as ex:
         futures = [ex.submit(task, e) for e in SENSITIVE_HEALTH_PATHS]
@@ -290,7 +326,8 @@ def _probe_health_paths(domain: str, result: ScanResult) -> None:
 
 def check_healthcare(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("Healthcare (KIM/TI/PVS)", 46)
+    baselines = fetch_baselines(domain)
     _check_kim(domain, result)
-    _probe_connector_paths(domain, result)
+    _probe_connector_paths(domain, result, baselines)
     _check_pvs_fingerprint(domain, result)
-    _probe_health_paths(domain, result)
+    _probe_health_paths(domain, result, baselines)
