@@ -278,9 +278,10 @@
   <li><span class="num">3.</span> Methodik</li>
   <li><span class="num">4.</span> Risikoprofil</li>
   <li><span class="num">5.</span> KBV-IT-Sicherheitsrichtlinie §390 SGB V</li>
-  <li><span class="num">6.</span> Detailbefunde (nach Schweregrad sortiert)</li>
-  <li><span class="num">7.</span> Technischer Anhang</li>
-  <li><span class="num">8.</span> Rechtliche Hinweise &amp; Haftungsausschluss</li>
+  <li><span class="num">6.</span> Metadaten-Leaks (PDFs &amp; Bilder)</li>
+  <li><span class="num">7.</span> Detailbefunde (nach Schweregrad sortiert)</li>
+  <li><span class="num">8.</span> Technischer Anhang</li>
+  <li><span class="num">9.</span> Rechtliche Hinweise &amp; Haftungsausschluss</li>
 </ul>
 
 <div class="meta-strip">
@@ -447,8 +448,126 @@
 <p>Keine KBV-Auswertung verfügbar.</p>
 {% endif %}
 
-<!-- ============ 6. DETAILBEFUNDE ============ -->
-<h2>6. Detailbefunde</h2>
+<!-- ============ 6. METADATEN-LEAKS ============ -->
+{% set pdf_leak = namespace(f=None) %}
+{% set img_gps = namespace(f=None) %}
+{% set img_personal = namespace(f=None) %}
+{% set pdfs_scanned = namespace(f=None) %}
+{% set images_scanned = namespace(f=None) %}
+{% for f in scan.result.findings %}
+  {% if f.id == 'pdf.author_leaked' %}{% set pdf_leak.f = f %}{% endif %}
+  {% if f.id == 'pdf.metadata_scanned' %}{% set pdfs_scanned.f = f %}{% endif %}
+  {% if f.id == 'image.exif_gps_leaked' %}{% set img_gps.f = f %}{% endif %}
+  {% if f.id == 'image.exif_personal_leaked' %}{% set img_personal.f = f %}{% endif %}
+  {% if f.id == 'image.exif_scanned' %}{% set images_scanned.f = f %}{% endif %}
+{% endfor %}
+
+<h2>6. Metadaten-Leaks (PDFs &amp; Bilder)</h2>
+
+{% if pdf_leak.f or img_gps.f or img_personal.f %}
+<p>
+  In öffentlich verlinkten Dateien dieser Domain wurden sensible Metadaten gefunden, die
+  personenbezogene Informationen oder Standortdaten preisgeben. Metadaten sind für MVZ
+  besonders kritisch, weil sie Mitarbeiterdaten, Home-Office-Standorte oder Praxis-
+  Ausrüstung identifizierbar machen — ein klares DSGVO-Thema (Art. 5 &amp; 32).
+</p>
+{% else %}
+<p>
+  Es wurden keine PDFs oder Bilder mit sensiblen Metadaten gefunden.
+  {% if pdfs_scanned.f %}({{ (pdfs_scanned.f.evidence.pdfs | length) if pdfs_scanned.f.evidence and pdfs_scanned.f.evidence.pdfs else 0 }} PDFs geprüft{% endif %}
+  {% if images_scanned.f %}{{ ', ' }}{{ (images_scanned.f.evidence.images | length) if images_scanned.f.evidence and images_scanned.f.evidence.images else 0 }} Bilder geprüft{% endif %}
+  {% if pdfs_scanned.f or images_scanned.f %}.{% endif %}
+</p>
+{% endif %}
+
+{% if pdf_leak.f %}
+<h3>6.1 PDF-Dateien mit Klarnamen im Author-Feld</h3>
+<p style="margin-bottom: 8pt;">
+  PDFs speichern beim Export unter <code>/Author</code> typischerweise den Klarnamen des
+  Verfassers. Das ist in der Regel ein Mitarbeitername und damit ein personenbezogenes Datum.
+</p>
+{% if pdf_leak.f.evidence and pdf_leak.f.evidence.hits %}
+<table class="avoid-break">
+  <thead>
+    <tr><th style="width: 40%;">Datei</th><th style="width: 15%;">Feld</th><th>Wert</th></tr>
+  </thead>
+  <tbody>
+    {% for hit in pdf_leak.f.evidence.hits %}
+    <tr>
+      <td style="font-family: 'DejaVu Sans Mono', monospace; font-size: 7.5pt; word-break: break-all;">{{ hit.url }}</td>
+      <td>{{ hit.key }}</td>
+      <td><strong>{{ hit.value }}</strong></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<div class="finding medium" style="margin-top: 8pt;">
+  <div class="cat">Empfehlung</div>
+  <div class="desc">{{ pdf_leak.f.recommendation }}</div>
+</div>
+{% endif %}
+
+{% if img_gps.f %}
+<h3>6.2 Bilder mit GPS-Koordinaten im EXIF-Header</h3>
+<p style="margin-bottom: 8pt;">
+  GPS-Koordinaten in öffentlich verlinkten Bildern offenbaren den physischen Standort —
+  bei Handy-Fotos aus dem Home-Office oder der Privatwohnung eines Mitarbeiters eine
+  direkte DSGVO-Verletzung und ein Risiko für Stalking/Doxxing.
+</p>
+{% if img_gps.f.evidence and img_gps.f.evidence.hits %}
+<table class="avoid-break">
+  <thead>
+    <tr><th style="width: 50%;">Bild</th><th style="width: 22%;">Feld</th><th>Wert (gekürzt)</th></tr>
+  </thead>
+  <tbody>
+    {% for hit in img_gps.f.evidence.hits %}
+    <tr>
+      <td style="font-family: 'DejaVu Sans Mono', monospace; font-size: 7.5pt; word-break: break-all;">{{ hit.url }}</td>
+      <td>{{ hit.key }}</td>
+      <td style="font-size: 8pt; font-family: 'DejaVu Sans Mono', monospace;">{{ hit.value | string | truncate(120) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<div class="finding high" style="margin-top: 8pt;">
+  <div class="cat">Empfehlung</div>
+  <div class="desc">{{ img_gps.f.recommendation }}</div>
+  <div class="kbv">{{ img_gps.f.kbv_ref }}</div>
+</div>
+{% endif %}
+
+{% if img_personal.f %}
+<h3>6.3 Bilder mit personenbezogenen EXIF-Feldern</h3>
+<p style="margin-bottom: 8pt;">
+  Felder wie <code>Artist</code>, <code>Copyright</code>, <code>CameraOwnerName</code> verknüpfen
+  das Bild mit einer realen Person — oft dem Verfasser oder Mitarbeiter der Praxis.
+</p>
+{% if img_personal.f.evidence and img_personal.f.evidence.hits %}
+<table class="avoid-break">
+  <thead>
+    <tr><th style="width: 50%;">Bild</th><th style="width: 20%;">Feld</th><th>Wert</th></tr>
+  </thead>
+  <tbody>
+    {% for hit in img_personal.f.evidence.hits %}
+    <tr>
+      <td style="font-family: 'DejaVu Sans Mono', monospace; font-size: 7.5pt; word-break: break-all;">{{ hit.url }}</td>
+      <td>{{ hit.key }}</td>
+      <td><strong>{{ hit.value | string | truncate(80) }}</strong></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<div class="finding medium" style="margin-top: 8pt;">
+  <div class="cat">Empfehlung</div>
+  <div class="desc">{{ img_personal.f.recommendation }}</div>
+</div>
+{% endif %}
+
+<!-- ============ 7. DETAILBEFUNDE ============ -->
+<h2>7. Detailbefunde</h2>
 <p>
   Die folgenden Einzelbefunde sind nach Schweregrad absteigend sortiert und innerhalb eines Schweregrades
   nach Bereich geordnet. Jeder Befund enthält Beschreibung, Handlungsempfehlung und — falls anwendbar —
@@ -474,15 +593,15 @@
   {% endif %}
 {% endfor %}
 
-<!-- ============ 7. TECHNISCHER ANHANG ============ -->
-<h2>7. Technischer Anhang</h2>
+<!-- ============ 8. TECHNISCHER ANHANG ============ -->
+<h2>8. Technischer Anhang</h2>
 <p>Der Anhang enthält die technischen Rohdaten des Scans — nützlich für IT-Dienstleister und zur Reproduzierbarkeit.</p>
 {% if scan.result.metadata %}
 <pre style="font-size: 7pt; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8pt; border-radius: 3pt; white-space: pre-wrap; word-break: break-all;">{{ scan.result.metadata | tojson(indent=2) }}</pre>
 {% endif %}
 
-<!-- ============ 8. HAFTUNGSAUSSCHLUSS ============ -->
-<h2>8. Rechtliche Hinweise &amp; Haftungsausschluss</h2>
+<!-- ============ 9. HAFTUNGSAUSSCHLUSS ============ -->
+<h2>9. Rechtliche Hinweise &amp; Haftungsausschluss</h2>
 <div class="legal-box">
   <p>
     <strong>Automatisiertes Self-Assessment.</strong> Der Bericht wurde ohne manuelle Pentest-Aktivitäten
