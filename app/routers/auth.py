@@ -27,7 +27,7 @@ async def login_form(
     request: Request,
     session: AsyncSession = Depends(get_session),
     error: str | None = None,
-) -> HTMLResponse | RedirectResponse:
+):
     count = await user_count(session)
     if count == 0:
         return RedirectResponse("/setup", status_code=303)
@@ -40,7 +40,7 @@ async def login_submit(
     email: str = Form(...),
     password: str = Form(...),
     session: AsyncSession = Depends(get_session),
-) -> HTMLResponse | RedirectResponse:
+):
     user = await get_user_by_email(session, email)
     if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
@@ -52,7 +52,7 @@ async def login_submit(
 
 
 @router.get("/logout")
-async def logout(request: Request) -> RedirectResponse:
+async def logout(request: Request):
     clear_session(request)
     return RedirectResponse("/login", status_code=303)
 
@@ -61,7 +61,7 @@ async def logout(request: Request) -> RedirectResponse:
 async def setup_form(
     request: Request,
     session: AsyncSession = Depends(get_session),
-) -> HTMLResponse | RedirectResponse:
+):
     count = await user_count(session)
     if count > 0:
         return RedirectResponse("/login", status_code=303)
@@ -76,7 +76,7 @@ async def setup_submit(
     password_confirm: str = Form(...),
     display_name: str = Form(""),
     session: AsyncSession = Depends(get_session),
-) -> HTMLResponse | RedirectResponse:
+):
     count = await user_count(session)
     if count > 0:
         return RedirectResponse("/login", status_code=303)
