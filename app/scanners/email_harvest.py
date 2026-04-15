@@ -14,7 +14,7 @@ from typing import Callable
 
 import httpx
 
-from app.integrations import hibp
+from app.integrations import leakcheck
 from app.scanners.base import Finding, ScanResult, Severity
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
@@ -44,7 +44,7 @@ def _fetch(client: httpx.Client, url: str) -> str:
 
 
 def harvest_and_check(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
-    step("E-Mail-Harvest + HIBP", 96)
+    step("E-Mail-Harvest + Leak-Check", 96)
 
     found: set[str] = set()
     with httpx.Client(
@@ -88,45 +88,75 @@ def harvest_and_check(domain: str, result: ScanResult, step: Callable[[str, int]
         ),
     ))
 
-    # If HIBP is enabled, check each address.
-    if hibp.is_enabled():
-        any_breached = False
-        breaches_per_email: dict[str, list[str]] = {}
-        for email in sorted(found):
-            breaches = hibp.breached_account(email)
-            hibp.rate_limit_sleep()
-            if breaches is None:
-                continue
-            if breaches:
-                any_breached = True
-                breaches_per_email[email] = [b.get("Name", "") for b in breaches]
+    # If LeakCheck is enabled, check each address.
+    if not leakcheck.is_enabled():
+        return
 
-        if breaches_per_email:
-            result.metadata["hibp_breaches"] = breaches_per_email
-            total = sum(len(v) for v in breaches_per_email.values())
-            result.add(Finding(
-                id="osint.hibp_breached_accounts",
-                title=f"{len(breaches_per_email)} E-Mail-Adresse(n) in {total} Daten-Leaks gefunden",
-                description=(
-                    "Have I Been Pwned verzeichnet bekannte Daten-Leaks, in denen diese "
-                    "öffentlich auffindbaren E-Mail-Adressen vorkommen. Passwörter aus "
-                    "solchen Leaks werden für Credential-Stuffing-Angriffe gegen "
-                    "MVZ-Konten missbraucht."
-                ),
-                severity=Severity.HIGH,
-                category="Credential Leak",
-                evidence=breaches_per_email,
-                recommendation=(
-                    "Betroffene Konten: Passwörter sofort ändern, MFA erzwingen, in "
-                    "Exchange/M365 auf ungewöhnliche Anmeldungen und Forwarding-Regeln prüfen."
-                ),
-                kbv_ref="KBV IT-Sicherheit §390 SGB V — Anlage 2 (Credentials)",
-            ))
-        elif any_breached is False and breaches_per_email == {}:
-            result.add(Finding(
-                id="osint.hibp_no_breaches",
-                title="Keine Leaks für die gefundenen E-Mail-Adressen bekannt",
-                description="HIBP hat zu keiner der öffentlich gefundenen Adressen Einträge.",
-                severity=Severity.INFO,
-                category="Credential Leak",
-            ))
+    breaches_per_email: dict[str, dict] = {}
+    clean_count = 0
+
+    for email in sorted(found):
+        data = leakcheck.check_email(email)
+        leakcheck.rate_limit_sleep()
+        if data is None:
+            continue
+        found_count = int(data.get("found", 0) or 0)
+        if found_count > 0:
+            breaches_per_email[email] = {
+                "count": found_count,
+                "fields": data.get("fields") or [],
+                "sources": [
+                    {"name": s.get("name"), "date": s.get("date")}
+                    for s in (data.get("sources") or [])[:30]
+                ],
+            }
+        else:
+            clean_count += 1
+
+    if breaches_per_email:
+        result.metadata["leakcheck_breaches"] = breaches_per_email
+        total = sum(v["count"] for v in breaches_per_email.values())
+
+        # Highest severity is CRITICAL if any breach leaked passwords *and* personal data.
+        worst_fields = set()
+        for v in breaches_per_email.values():
+            for f in v.get("fields") or []:
+                worst_fields.add(f.lower())
+        has_password = "password" in worst_fields
+        has_pii = any(f in worst_fields for f in ("ssn", "dob", "address", "phone", "first_name", "last_name"))
+
+        if has_password and has_pii:
+            sev = Severity.CRITICAL
+        elif has_password:
+            sev = Severity.HIGH
+        else:
+            sev = Severity.MEDIUM
+
+        result.add(Finding(
+            id="osint.leakcheck_breached_accounts",
+            title=f"{len(breaches_per_email)} E-Mail-Adresse(n) in {total} Daten-Leaks gefunden",
+            description=(
+                "LeakCheck.io verzeichnet bekannte Daten-Leaks, in denen diese öffentlich "
+                "auffindbaren E-Mail-Adressen vorkommen. Passwörter und Stammdaten aus "
+                "solchen Leaks werden für Credential-Stuffing- und Phishing-Angriffe "
+                "gegen MVZ-Konten missbraucht."
+                f"\n\nBetroffene Datenkategorien: {', '.join(sorted(worst_fields)) or 'unklar'}."
+            ),
+            severity=sev,
+            category="Credential Leak",
+            evidence=breaches_per_email,
+            recommendation=(
+                "Betroffene Konten: Passwörter sofort ändern, MFA erzwingen, in "
+                "Exchange/M365 auf ungewöhnliche Anmeldungen und Forwarding-Regeln prüfen. "
+                "Mitarbeitende über Risiko von wiederverwendeten Passwörtern schulen."
+            ),
+            kbv_ref="KBV IT-Sicherheit §390 SGB V — Anlage 2 (Credentials)",
+        ))
+    elif clean_count > 0:
+        result.add(Finding(
+            id="osint.leakcheck_no_breaches",
+            title="Keine Leaks für die gefundenen E-Mail-Adressen bekannt",
+            description="LeakCheck hat zu keiner der öffentlich gefundenen Adressen Einträge.",
+            severity=Severity.INFO,
+            category="Credential Leak",
+        ))

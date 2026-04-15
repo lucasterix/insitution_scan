@@ -27,18 +27,19 @@ _NVD_DELAY_NO_KEY = 6.5  # 5 req / 30s + margin
 _NVD_DELAY_WITH_KEY = 0.7  # 50 req / 30s + margin
 
 
-# Mapping of fingerprint keys (as written by tech_fingerprint.py) to
-# CPE vendor/product pairs. Extend this as new detections are added.
-CPE_MAP: dict[str, tuple[str, str]] = {
-    "server.nginx": ("nginx", "nginx"),
-    "server.apache": ("apache", "http_server"),
-    "server.apache-coyote": ("apache", "tomcat"),
-    "server.iis": ("microsoft", "internet_information_services"),
-    "server.caddy": ("caddyserver", "caddy"),
-    "server.openresty": ("openresty", "openresty"),
-    "wordpress": ("wordpress", "wordpress"),
-    "jquery": ("jquery", "jquery"),
-    "bootstrap": ("getbootstrap", "bootstrap"),
+# Mapping of fingerprint keys (as written by tech_fingerprint.py) to a list of
+# CPE vendor/product pairs. Multiple variants are merged (NVD historically
+# published nginx under `nginx:nginx`; modern entries live under `f5:nginx`).
+CPE_MAP: dict[str, list[tuple[str, str]]] = {
+    "server.nginx": [("f5", "nginx"), ("nginx", "nginx")],
+    "server.apache": [("apache", "http_server")],
+    "server.apache-coyote": [("apache", "tomcat")],
+    "server.iis": [("microsoft", "internet_information_services")],
+    "server.caddy": [("caddyserver", "caddy")],
+    "server.openresty": [("openresty", "openresty")],
+    "wordpress": [("wordpress", "wordpress")],
+    "jquery": [("jquery", "jquery")],
+    "bootstrap": [("getbootstrap", "bootstrap")],
 }
 
 
@@ -98,16 +99,18 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
     if not tech:
         return
 
-    # Build (key, vendor, product, version) list for detected components.
-    candidates: list[tuple[str, str, str, str]] = []
+    # Build (key, display_product, version, [cpe_variants]) list.
+    candidates: list[tuple[str, str, str, list[str]]] = []
     for key, version in tech.items():
         if not isinstance(version, str) or not version:
             continue
-        mapping = CPE_MAP.get(key)
-        if not mapping:
+        variants = CPE_MAP.get(key)
+        if not variants:
             continue
-        vendor, product = mapping
-        candidates.append((key, vendor, product, version))
+        # Display name uses the first variant's product.
+        display_product = variants[0][1]
+        cpe_variants = [_cpe(v, p, version) for v, p in variants]
+        candidates.append((key, display_product, version, cpe_variants))
 
     if not candidates:
         return
@@ -120,24 +123,32 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
     all_cves: dict[str, dict] = {}
     per_component: dict[str, list[str]] = {}
 
-    for idx, (key, vendor, product, version) in enumerate(candidates):
-        cpe = _cpe(vendor, product, version)
+    queries_done = 0
+    total_queries = sum(len(c[3]) for c in candidates)
 
-        cached = _cached_lookup(cpe)
-        if cached is not None:
-            cves = cached
-        else:
-            cves = fetch_nvd_cves_for_cpe(cpe, limit=50)
-            _cache_store(cpe, cves)
-            if idx < len(candidates) - 1:
-                time.sleep(delay)
+    for key, display_product, version, cpe_variants in candidates:
+        component_label = f"{display_product} {version}"
+        merged_cves: dict[str, dict] = {}
 
-        if not cves:
+        for cpe in cpe_variants:
+            cached = _cached_lookup(cpe)
+            if cached is not None:
+                cves = cached
+            else:
+                cves = fetch_nvd_cves_for_cpe(cpe, limit=50)
+                _cache_store(cpe, cves)
+                queries_done += 1
+                if queries_done < total_queries:
+                    time.sleep(delay)
+
+            for c in cves:
+                merged_cves[c["id"]] = c
+
+        if not merged_cves:
             continue
 
-        per_component[f"{product} {version}"] = [c["id"] for c in cves]
-        for c in cves:
-            all_cves[c["id"]] = c
+        per_component[component_label] = list(merged_cves.keys())
+        all_cves.update(merged_cves)
 
     if not all_cves:
         result.metadata["vuln_scan"] = {"components_checked": len(candidates), "cves_found": 0}

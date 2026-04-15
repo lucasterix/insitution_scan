@@ -14,7 +14,8 @@ class Settings(BaseSettings):
 
     # Optional third-party API keys — scanners gracefully skip when empty.
     shodan_api_key: str = ""
-    hibp_api_key: str = ""
+    hibp_api_key: str = ""  # deprecated in favour of leakcheck; kept for future
+    leakcheck_api_key: str = ""
     otx_api_key: str = ""
     abuseipdb_api_key: str = ""
     nvd_api_key: str = ""  # optional; NVD works without but gives higher rate limit

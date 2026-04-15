@@ -36,6 +36,7 @@ services:
       PUBLIC_BASE_URL: https://scan.zdkg.de
       SHODAN_API_KEY: ${SHODAN_API_KEY:-}
       HIBP_API_KEY: ${HIBP_API_KEY:-}
+      LEAKCHECK_API_KEY: ${LEAKCHECK_API_KEY:-}
       OTX_API_KEY: ${OTX_API_KEY:-}
       ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
       NVD_API_KEY: ${NVD_API_KEY:-}
@@ -57,6 +58,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       SHODAN_API_KEY: ${SHODAN_API_KEY:-}
       HIBP_API_KEY: ${HIBP_API_KEY:-}
+      LEAKCHECK_API_KEY: ${LEAKCHECK_API_KEY:-}
       OTX_API_KEY: ${OTX_API_KEY:-}
       ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
       NVD_API_KEY: ${NVD_API_KEY:-}
