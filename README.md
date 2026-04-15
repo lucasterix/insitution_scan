@@ -20,11 +20,9 @@ Entwickelt für MVZ-Betreiber, die ihre eigene IT-Infrastruktur regelmäßig und
 
 ## 🛡️ Sichere Testumgebung (Pflicht für alle Module)
 
-- **Isolierte Umgebung** (VLAN, Host-Only, Staging-Systeme)
 - Schriftliche Freigabe des MVZ-Inhabers + Anwalts-Dokumentation
 - Vollständiges Logging (Sysmon, osquery, EDR)
 - Snapshots / Immutable Backups vor jedem Test
-- **Niemals** produktive Patientendaten oder fremde Systeme scannen
 
 ---
 
