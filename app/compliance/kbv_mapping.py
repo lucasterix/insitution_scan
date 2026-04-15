@@ -117,6 +117,48 @@ KBV_REQUIREMENTS: tuple[KBVRequirement, ...] = (
         description="Auf öffentlich erreichbaren Servern/Diensten sind keine bekannten CVEs identifizierbar.",
         finding_id_prefixes=("vuln.",),
     ),
+    KBVRequirement(
+        anlage=1,
+        code="A1.4",
+        title="Keine sensiblen Dateien öffentlich abrufbar",
+        description=".git, .env, Datenbank-Dumps, Backup-Archive und ähnliche Dateien sind nicht über das Web erreichbar.",
+        finding_id_prefixes=("exposed.",),
+    ),
+    KBVRequirement(
+        anlage=3,
+        code="A3.7",
+        title="Keine sensiblen Subdomains öffentlich (Staging/Admin)",
+        description="Entwicklungs-, Staging- und Admin-Subdomains sind nicht aus dem Internet erreichbar.",
+        finding_id_prefixes=("subdomain.sensitive.",),
+    ),
+    KBVRequirement(
+        anlage=3,
+        code="A3.8",
+        title="Keine kritischen Ports aus dem Internet erreichbar",
+        description="RDP, SMB, Telnet, VNC, MSSQL, MySQL, PostgreSQL, MongoDB, Redis und Elasticsearch sind aus dem Internet nicht erreichbar.",
+        finding_id_prefixes=("port.", "shodan.port."),
+    ),
+    KBVRequirement(
+        anlage=2,
+        code="A2.4",
+        title="DKIM aktiv konfiguriert",
+        description="Mindestens ein DKIM-Selector ist veröffentlicht und signiert ausgehende Mails.",
+        finding_id_prefixes=("email.dkim_missing",),
+    ),
+    KBVRequirement(
+        anlage=2,
+        code="A2.5",
+        title="MTA-STS Transportverschlüsselung für E-Mail",
+        description="MTA-STS erzwingt TLS zwischen Mail-Servern und schützt vor STARTTLS-Downgrade.",
+        finding_id_prefixes=("email.mta_sts_missing", "email.mta_sts_policy_missing"),
+    ),
+    KBVRequirement(
+        anlage=1,
+        code="A1.5",
+        title="Keine Klarnamen in öffentlichen PDF-Metadaten",
+        description="Öffentliche PDFs (Patientenaufklärung, Preislisten etc.) enthalten keine Klarnamen oder Standort-Metadaten.",
+        finding_id_prefixes=("pdf.author_leaked",),
+    ),
 )
 
 
