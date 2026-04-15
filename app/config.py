@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     log_level: str = "INFO"
 
+    # Optional third-party API keys — scanners gracefully skip when empty.
+    shodan_api_key: str = ""
+    hibp_api_key: str = ""
+    otx_api_key: str = ""
+    abuseipdb_api_key: str = ""
+    nvd_api_key: str = ""  # optional; NVD works without but gives higher rate limit
+
 
 @lru_cache
 def get_settings() -> Settings:

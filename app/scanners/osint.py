@@ -11,6 +11,8 @@ import dns.resolver
 import httpx
 import tldextract
 
+from app.integrations import abuseipdb, otx, shodan
+from app.integrations.ssllabs import SSLLabsClient, grade_to_severity
 from app.scanners.base import Finding, ScanResult, Severity
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
@@ -285,6 +287,171 @@ def check_tls(domain: str, result: ScanResult, step: Callable[[str, int], None])
         ))
 
 
+def check_ssllabs(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
+    step("SSL Labs Deep-Grade", 68)
+    with SSLLabsClient() as client:
+        report = client.analyze(domain, use_cache=True)
+
+    if not report:
+        result.metadata["ssllabs"] = {"status": "unavailable"}
+        return
+
+    endpoints = report.get("endpoints") or []
+    grades = []
+    for ep in endpoints:
+        g = ep.get("grade") or ep.get("gradeTrustIgnored")
+        if g:
+            grades.append(g)
+
+    result.metadata["ssllabs"] = {
+        "status": report.get("status"),
+        "grades": grades,
+        "endpoints": [
+            {
+                "ipAddress": ep.get("ipAddress"),
+                "grade": ep.get("grade"),
+                "hasWarnings": ep.get("hasWarnings"),
+            }
+            for ep in endpoints
+        ],
+    }
+
+    if not grades:
+        return
+
+    worst = max(grades, key=lambda g: ["A+", "A", "A-", "B", "C", "D", "E", "F", "T", "M"].index(g.upper()) if g.upper() in ["A+", "A", "A-", "B", "C", "D", "E", "F", "T", "M"] else -1)
+    sev = grade_to_severity(worst)
+
+    if sev in ("info",):
+        # A/A+/A- — report as positive info finding
+        result.add(Finding(
+            id="tls.ssllabs_grade",
+            title=f"SSL Labs Grade {worst}",
+            description="Tiefe TLS-Konfigurationsprüfung ergab ein gutes Ergebnis.",
+            severity=Severity.INFO,
+            category="TLS",
+            evidence={"grades": grades},
+        ))
+    else:
+        result.add(Finding(
+            id="tls.ssllabs_weak_grade",
+            title=f"SSL Labs Grade {worst}",
+            description=f"SSL Labs bewertet die TLS-Konfiguration mit {worst}. Details siehe ssllabs.com/ssltest/analyze.html?d={domain}",
+            severity=Severity(sev),
+            category="TLS",
+            evidence={"grades": grades},
+            recommendation="Schwache Cipher / veraltete Protokolle deaktivieren, Zertifikatskette prüfen.",
+        ))
+
+
+def check_ip_intel(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
+    """IP-Intel via Shodan, AbuseIPDB, OTX. Alle Calls sind passiv und optional."""
+    ips = (result.metadata.get("dns") or {}).get("A") or []
+    if not ips:
+        return
+
+    anything_enabled = shodan.is_enabled() or abuseipdb.is_enabled() or otx.is_enabled()
+    if not anything_enabled:
+        return
+
+    step("IP-Intel (Shodan/AbuseIPDB/OTX)", 82)
+    ip_reports: dict[str, dict] = {}
+
+    for ip in ips[:3]:  # cap to avoid slow scans with many A records
+        entry: dict = {}
+
+        if shodan.is_enabled():
+            sh = shodan.host_lookup(ip)
+            if sh:
+                ports = sh.get("ports") or []
+                entry["shodan"] = {
+                    "ports": ports,
+                    "hostnames": sh.get("hostnames"),
+                    "os": sh.get("os"),
+                    "last_update": sh.get("last_update"),
+                }
+                risky_ports = {
+                    3389: ("RDP", Severity.CRITICAL),
+                    445: ("SMB", Severity.HIGH),
+                    23: ("Telnet", Severity.HIGH),
+                    21: ("FTP (unverschlüsselt)", Severity.MEDIUM),
+                    1433: ("MSSQL", Severity.HIGH),
+                    3306: ("MySQL", Severity.HIGH),
+                    5432: ("PostgreSQL", Severity.HIGH),
+                    27017: ("MongoDB", Severity.HIGH),
+                    6379: ("Redis", Severity.HIGH),
+                    9200: ("Elasticsearch", Severity.HIGH),
+                }
+                for port in ports:
+                    if port in risky_ports:
+                        label, sev = risky_ports[port]
+                        result.add(Finding(
+                            id=f"shodan.port.{ip}.{port}",
+                            title=f"{label}-Port {port} öffentlich erreichbar ({ip})",
+                            description=f"Shodan meldet {label} auf {ip}:{port}. Das ist für MVZs typischerweise ein Top-Risiko.",
+                            severity=sev,
+                            category="Network Exposure",
+                            evidence={"ip": ip, "port": port},
+                            recommendation=f"{label} nur via VPN/Firewall erreichbar machen oder komplett schließen.",
+                            kbv_ref="KBV IT-Sicherheit §390 SGB V — Netzwerk-Härtung",
+                        ))
+
+        if abuseipdb.is_enabled():
+            ab = abuseipdb.check_ip(ip)
+            if ab:
+                score = int(ab.get("abuseConfidenceScore", 0))
+                entry["abuseipdb"] = {
+                    "score": score,
+                    "total_reports": ab.get("totalReports", 0),
+                    "country": ab.get("countryCode"),
+                }
+                if score >= 50:
+                    result.add(Finding(
+                        id=f"abuseipdb.{ip}",
+                        title=f"IP {ip} hat hohe Abuse-Reputation (Score {score}/100)",
+                        description="AbuseIPDB meldet zahlreiche Missbrauchsmeldungen für diese IP. Eventuell kompromittiert oder auf Blacklist.",
+                        severity=Severity.HIGH if score >= 80 else Severity.MEDIUM,
+                        category="Reputation",
+                        evidence=ab,
+                    ))
+
+        if otx.is_enabled():
+            ot = otx.ip_pulses(ip)
+            if ot:
+                pulses = (ot.get("pulse_info") or {}).get("count", 0)
+                entry["otx"] = {"pulse_count": pulses}
+                if pulses > 0:
+                    result.add(Finding(
+                        id=f"otx.{ip}",
+                        title=f"IP {ip} in {pulses} OTX-Threat-Pulses gelistet",
+                        description="AlienVault OTX verknüpft diese IP mit bekannten Bedrohungs-Kampagnen.",
+                        severity=Severity.MEDIUM,
+                        category="Threat Intel",
+                        evidence={"pulse_count": pulses},
+                    ))
+
+        if entry:
+            ip_reports[ip] = entry
+
+    if otx.is_enabled():
+        dom_intel = otx.domain_pulses(domain)
+        if dom_intel:
+            pulses = (dom_intel.get("pulse_info") or {}).get("count", 0)
+            result.metadata.setdefault("otx_domain", {})["pulse_count"] = pulses
+            if pulses > 0:
+                result.add(Finding(
+                    id="otx.domain",
+                    title=f"Domain in {pulses} OTX-Threat-Pulses gelistet",
+                    description="AlienVault OTX verknüpft diese Domain mit bekannten Bedrohungs-Kampagnen.",
+                    severity=Severity.MEDIUM,
+                    category="Threat Intel",
+                    evidence={"pulse_count": pulses},
+                ))
+
+    if ip_reports:
+        result.metadata["ip_intel"] = ip_reports
+
+
 def check_subdomains(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("Subdomain-Enumeration (crt.sh)", 75)
     ext = tldextract.extract(domain)
@@ -350,7 +517,9 @@ def run_osint_scan(domain: str, on_progress: Callable[[str, int], None] | None =
     check_email_auth(domain, result, step)
     check_http(domain, result, step)
     check_tls(domain, result, step)
+    check_ssllabs(domain, result, step)
     check_subdomains(domain, result, step)
+    check_ip_intel(domain, result, step)
     check_robots(domain, result, step)
     step("Abgeschlossen", 100)
 

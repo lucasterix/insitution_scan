@@ -34,6 +34,11 @@ services:
       DATABASE_URL: postgresql+asyncpg://scan:${POSTGRES_PASSWORD}@postgres:5432/scan
       REDIS_URL: redis://redis:6379/0
       PUBLIC_BASE_URL: https://scan.zdkg.de
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+      HIBP_API_KEY: ${HIBP_API_KEY:-}
+      OTX_API_KEY: ${OTX_API_KEY:-}
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      NVD_API_KEY: ${NVD_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,6 +55,11 @@ services:
       APP_ENV: production
       DATABASE_URL: postgresql+asyncpg://scan:${POSTGRES_PASSWORD}@postgres:5432/scan
       REDIS_URL: redis://redis:6379/0
+      SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+      HIBP_API_KEY: ${HIBP_API_KEY:-}
+      OTX_API_KEY: ${OTX_API_KEY:-}
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      NVD_API_KEY: ${NVD_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
