@@ -1,3 +1,4 @@
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -23,3 +24,11 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Ad-hoc migrations for columns added after the initial table
+        # creation. ADD COLUMN IF NOT EXISTS is Postgres 9.6+.
+        for ddl in (
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS ownership_confirmed BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS deep_scan BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS context JSON",
+        ):
+            await conn.execute(text(ddl))

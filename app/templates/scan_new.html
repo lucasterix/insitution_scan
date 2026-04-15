@@ -1,20 +1,37 @@
 {% extends "base.html" %}
 {% block title %}Neuer Scan{% endblock %}
 {% block content %}
-<div class="max-w-xl mx-auto">
-  <h1 class="text-2xl font-bold mb-6">Neuen Scan anlegen</h1>
+<div class="max-w-2xl mx-auto">
+  <h1 class="text-2xl font-bold mb-2">Neuen Scan anlegen</h1>
+  <p class="text-sm text-slate-500 mb-6">Automatisiertes Self-Assessment nach KBV §390 SGB V + DSGVO</p>
 
-  <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-sm text-amber-900">
-    <strong>⚠️ Nur eigene Systeme scannen.</strong> Du bestätigst, dass du Inhaber oder berechtigter Betreiber der angegebenen Domain bist.
+  <!-- Legal warning -->
+  <div class="bg-rose-50 border border-rose-200 rounded-xl p-5 mb-6">
+    <h3 class="font-bold text-rose-900 flex items-center gap-2 mb-2">
+      <span>⚠️</span> Rechtlicher Hinweis
+    </h3>
+    <p class="text-sm text-rose-800 mb-2">
+      Dieses Tool sendet aktiven Traffic an die angegebene Domain
+      (Port-Scans, Directory-Probes, HTTP-Method-Tests, Subdomain-Walks).
+      Ein Scan fremder Systeme ohne ausdrückliche Zustimmung des Inhabers
+      kann nach <strong>§202c StGB</strong> (Vorbereiten des Ausspähens von Daten)
+      strafbar sein.
+    </p>
+    <p class="text-sm text-rose-800">
+      Nutze dieses Tool ausschließlich für Domains, die du selbst betreibst
+      oder für deren Prüfung du eine schriftliche Freigabe hast.
+    </p>
   </div>
 
-  <form method="post" action="/scans" class="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+  <form method="post" action="/scans" class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-5">
+
     <div>
       <label class="block text-sm font-medium text-slate-700 mb-1">Name der Institution</label>
       <input type="text" name="institution_name" required
              class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
              placeholder="z.B. MVZ Musterstadt">
     </div>
+
     <div>
       <label class="block text-sm font-medium text-slate-700 mb-1">Domain</label>
       <input type="text" name="target_domain" required
@@ -22,9 +39,64 @@
              placeholder="beispiel.de">
       <p class="text-xs text-slate-500 mt-1">Nur die Domain, ohne http:// oder Pfade.</p>
     </div>
+
+    <!-- Consent gate -->
+    <div class="border-2 border-amber-200 bg-amber-50 rounded-lg p-4">
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" name="ownership_confirmed" value="yes" required
+               class="mt-1 w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500">
+        <div class="text-sm text-amber-900">
+          <strong>Ich bestätige, dass ich Inhaber oder berechtigter Betreiber der oben
+          angegebenen Domain bin, oder dass ich eine schriftliche Freigabe des Inhabers
+          zur Durchführung dieses Scans habe.</strong>
+          <div class="text-xs mt-1 text-amber-800">Pflichtfeld. Wird zusammen mit dem Scan protokolliert.</div>
+        </div>
+      </label>
+    </div>
+
+    <!-- Deep scan toggle -->
+    <div class="border-2 border-emerald-200 bg-emerald-50 rounded-lg p-4">
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" name="deep_scan" value="yes"
+               class="mt-1 w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500">
+        <div class="text-sm text-emerald-900">
+          <strong>Deep Scan aktivieren</strong>
+          <div class="text-xs mt-1 text-emerald-800">
+            Zusätzlich: Directory-Fuzzing (150 Pfade), HTTP-Method-Probing (TRACE/PUT/DELETE),
+            DNS Zone-Transfer-Versuch (AXFR), aktive CORS-Tests, JS-File Secret-Scanning,
+            Wayback-Machine-Historie. Dauer: +2–5 Minuten. Erhöht den Traffic zum Ziel spürbar.
+          </div>
+        </div>
+      </label>
+    </div>
+
+    <!-- Optional manual context -->
+    <details class="border border-slate-200 rounded-lg p-4">
+      <summary class="font-semibold text-slate-700 cursor-pointer text-sm">
+        Zusätzlicher Kontext (optional)
+      </summary>
+      <div class="mt-4 space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Weitere E-Mail-Adressen zum Leak-Check</label>
+          <input type="text" name="context_emails"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                 placeholder="praxis@…, dr.mueller@…">
+          <p class="text-xs text-slate-500 mt-1">Komma-getrennt. Diese Adressen werden zusätzlich zum Impressum-Harvester geprüft.</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Notizen zum Scan</label>
+          <textarea name="context_notes" rows="3"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="z.B. 'PVS: TurboMed 25.0, TI-Konnektor: SecuNET Eurobox, Hosting bei Hetzner'"></textarea>
+        </div>
+      </div>
+    </details>
+
     <div class="flex gap-3 pt-2">
-      <button type="submit" class="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Scan starten</button>
-      <a href="/" class="px-5 py-2.5 border border-slate-300 rounded-lg hover:bg-slate-50">Abbrechen</a>
+      <button type="submit" class="flex-1 px-5 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium">
+        Scan starten
+      </button>
+      <a href="/" class="px-5 py-3 border border-slate-300 rounded-lg hover:bg-slate-50 text-slate-700">Abbrechen</a>
     </div>
   </form>
 </div>

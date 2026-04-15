@@ -29,7 +29,7 @@ def _sync_engine():
         )
 
 
-def run_scan_job(scan_id: str, domain: str) -> None:
+def run_scan_job(scan_id: str, domain: str, deep_scan: bool = False) -> None:
     from app.models import Scan  # local import avoids eager metadata init
 
     engine = _sync_engine()
@@ -45,7 +45,7 @@ def run_scan_job(scan_id: str, domain: str) -> None:
         set_status(progress=pct, current_step=label)
 
     try:
-        result = run_osint_scan(domain, on_progress=progress_cb)
+        result = run_osint_scan(domain, on_progress=progress_cb, deep_scan=deep_scan)
         set_status(
             status="completed",
             progress=100,

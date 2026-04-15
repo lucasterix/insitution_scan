@@ -14,6 +14,7 @@ import tldextract
 from app.integrations import abuseipdb, otx, shodan
 from app.integrations.ssllabs import SSLLabsClient, grade_to_severity
 from app.scanners.base import Finding, ScanResult, Severity
+from app.scanners.deep.runner import run_deep_scan
 from app.scanners.email_auth_deep import check_email_deep
 from app.scanners.email_harvest import harvest_and_check
 from app.scanners.exposed_files import check_exposed_files
@@ -515,10 +516,15 @@ def check_robots(domain: str, result: ScanResult, step: Callable[[str, int], Non
         pass
 
 
-def run_osint_scan(domain: str, on_progress: Callable[[str, int], None] | None = None) -> dict:
+def run_osint_scan(
+    domain: str,
+    on_progress: Callable[[str, int], None] | None = None,
+    deep_scan: bool = False,
+) -> dict:
     """Execute the full OSINT scan for a domain. Returns a serializable dict."""
     domain = _normalize_domain(domain)
     result = ScanResult(target=domain)
+    result.metadata["deep_scan"] = deep_scan
 
     def step(label: str, progress: int) -> None:
         if on_progress:
@@ -545,6 +551,10 @@ def run_osint_scan(domain: str, on_progress: Callable[[str, int], None] | None =
     check_tech_fingerprint(domain, result, step)
     check_known_vulns(domain, result, step)
     harvest_and_check(domain, result, step)
+
+    if deep_scan:
+        run_deep_scan(domain, result, step)
+
     step("Abgeschlossen", 100)
 
     return result.to_dict()

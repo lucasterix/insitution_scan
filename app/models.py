@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -18,6 +18,10 @@ class Scan(Base):
     institution_name: Mapped[str] = mapped_column(String(255))
     target_domain: Mapped[str] = mapped_column(String(255), index=True)
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    # Pentest authorisation + scan mode
+    ownership_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    deep_scan: Mapped[bool] = mapped_column(Boolean, default=False)
+    context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # queued, running, completed, failed
     progress: Mapped[int] = mapped_column(default=0)
     current_step: Mapped[str | None] = mapped_column(String(255), nullable=True)

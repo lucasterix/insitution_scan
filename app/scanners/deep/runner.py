@@ -1,0 +1,34 @@
+"""Deep-scan runner — wires up all deep modules behind one call.
+
+Executed only when the user checked `deep_scan` on the form. Each module
+gets its own try/except so one failing check doesn't break the others.
+"""
+from __future__ import annotations
+
+from typing import Callable
+
+from app.scanners.base import ScanResult
+from app.scanners.deep.active_cors import check_cors
+from app.scanners.deep.directory_fuzz import check_directory_fuzz
+from app.scanners.deep.http_methods import check_http_methods
+from app.scanners.deep.js_secrets import check_js_secrets
+from app.scanners.deep.wayback import check_wayback
+from app.scanners.deep.zone_transfer import check_zone_transfer
+
+
+def run_deep_scan(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
+    # Ordered roughly by cost: DNS-only checks first, then HTTP-heavy ones.
+    for fn in (
+        check_zone_transfer,
+        check_wayback,
+        check_http_methods,
+        check_cors,
+        check_js_secrets,
+        check_directory_fuzz,
+    ):
+        try:
+            fn(domain, result, step)
+        except Exception as e:  # noqa: BLE001 — one failing module must not kill deep scan
+            result.metadata.setdefault("deep_scan_errors", []).append(
+                {"module": fn.__name__, "error": f"{type(e).__name__}: {e}"}
+            )

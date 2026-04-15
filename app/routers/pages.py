@@ -35,23 +35,46 @@ async def create_scan(
     request: Request,
     institution_name: str = Form(...),
     target_domain: str = Form(...),
+    ownership_confirmed: str = Form(None),
+    deep_scan: str = Form(None),
+    context_notes: str = Form(""),
+    context_emails: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ) -> RedirectResponse:
     domain = _normalize_domain(target_domain)
     if not domain or "." not in domain:
         raise HTTPException(status_code=400, detail="Ungültige Domain")
 
+    if not ownership_confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="Die Eigentümer-Bestätigung ist Pflicht. Scans fremder Systeme sind strafbar (§202c StGB).",
+        )
+
+    is_deep = bool(deep_scan)
+
+    context: dict = {}
+    if context_notes.strip():
+        context["notes"] = context_notes.strip()[:2000]
+    if context_emails.strip():
+        emails = [e.strip().lower() for e in context_emails.split(",") if "@" in e]
+        if emails:
+            context["extra_emails"] = emails[:20]
+
     scan = Scan(
         institution_name=institution_name.strip(),
         target_domain=domain,
         status="queued",
         progress=0,
+        ownership_confirmed=True,
+        deep_scan=is_deep,
+        context=context or None,
     )
     session.add(scan)
     await session.commit()
     await session.refresh(scan)
 
-    scan_queue.enqueue(run_scan_job, scan.id, domain, job_id=f"scan-{scan.id}")
+    scan_queue.enqueue(run_scan_job, scan.id, domain, is_deep, job_id=f"scan-{scan.id}")
 
     return RedirectResponse(url=f"/scans/{scan.id}", status_code=303)
 
