@@ -13,9 +13,11 @@ import tldextract
 
 from app.integrations import abuseipdb, otx, shodan
 from app.integrations.ssllabs import SSLLabsClient, grade_to_severity
+from app.scanners.banner_grab import check_banners
 from app.scanners.base import Finding, ScanResult, Severity
 from app.scanners.deep.runner import run_deep_scan
 from app.scanners.email_auth_deep import check_email_deep
+from app.scanners.site_crawler import crawl_site
 from app.scanners.email_harvest import harvest_and_check
 from app.scanners.exposed_files import check_exposed_files
 from app.scanners.healthcare import check_healthcare
