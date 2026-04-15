@@ -34,6 +34,13 @@
 
 {% if scan.status == 'completed' and scan.result %}
   {% set counts = scan.result.severity_counts %}
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg font-semibold text-slate-700">Auf einen Blick</h2>
+    <a href="/scans/{{ scan.id }}/report.pdf"
+       class="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 text-sm">
+      📄 Als PDF exportieren
+    </a>
+  </div>
   <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
     {% for sev, label, col in [
       ('critical', 'Kritisch', 'rose'),
@@ -48,6 +55,58 @@
     </div>
     {% endfor %}
   </div>
+
+  {% if kbv %}
+  <div class="bg-white border border-slate-200 rounded-xl p-6 mb-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold">KBV IT-Sicherheitsrichtlinie (§390 SGB V)</h2>
+      <div class="text-right">
+        <div class="text-3xl font-bold {{ 'text-emerald-600' if kbv.totals.pct >= 80 else 'text-amber-600' if kbv.totals.pct >= 50 else 'text-rose-600' }}">
+          {{ kbv.totals.pct }}%
+        </div>
+        <div class="text-xs uppercase text-slate-500">{{ kbv.totals.ok }}/{{ kbv.totals.total }} erfüllt</div>
+      </div>
+    </div>
+
+    {% for a in kbv.anlagen %}
+    <div class="mb-4 last:mb-0">
+      <h3 class="font-semibold text-slate-800 mb-2">
+        {{ a.title }}
+        <span class="ml-2 text-xs font-normal text-slate-500">
+          ({{ a.ok_count }} ok, {{ a.fail_count }} offen)
+        </span>
+      </h3>
+      <div class="space-y-2">
+        {% for r in a.requirements %}
+          {% if r.status == 'fail' %}
+            {% set rc = {'critical': 'rose', 'high': 'orange', 'medium': 'amber', 'low': 'sky', 'info': 'slate'}.get(r.severity, 'rose') %}
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-{{ rc }}-50 border border-{{ rc }}-200">
+              <span class="text-{{ rc }}-600 font-bold">✗</span>
+              <div class="flex-1">
+                <div class="text-sm font-semibold text-slate-900">{{ r.code }} — {{ r.title }}</div>
+                <div class="text-xs text-slate-600 mt-0.5">{{ r.description }}</div>
+              </div>
+            </div>
+          {% else %}
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+              <span class="text-emerald-600 font-bold">✓</span>
+              <div class="flex-1">
+                <div class="text-sm font-semibold text-slate-900">{{ r.code }} — {{ r.title }}</div>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+
+    <p class="mt-4 text-xs text-slate-500 italic">
+      Hinweis: Die Zuordnung ist eine praxistaugliche Näherung, kein Rechtstext.
+      Die finale Compliance-Bewertung muss durch einen Fachkundigen erfolgen —
+      das Tool liefert die technische Grundlage.
+    </p>
+  </div>
+  {% endif %}
 
   <h2 class="text-xl font-bold mb-4">Findings ({{ scan.result.findings | length }})</h2>
 

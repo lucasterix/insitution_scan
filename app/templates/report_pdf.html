@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>MVZ Self-Scan Report — {{ scan.target_domain }}</title>
+  <style>
+    @page { size: A4; margin: 2cm 1.8cm 2.2cm 1.8cm; @bottom-center { content: "Seite " counter(page) " / " counter(pages); font-size: 9pt; color: #64748b; } }
+    * { box-sizing: border-box; }
+    body { font-family: "DejaVu Sans", sans-serif; color: #1e293b; font-size: 10pt; line-height: 1.45; }
+    h1 { font-size: 22pt; margin: 0 0 4pt 0; color: #064e3b; }
+    h2 { font-size: 14pt; margin: 18pt 0 6pt 0; color: #0f172a; border-bottom: 1px solid #cbd5e1; padding-bottom: 3pt; }
+    h3 { font-size: 11pt; margin: 10pt 0 4pt 0; color: #334155; }
+    .meta { color: #64748b; font-size: 9pt; margin-bottom: 14pt; }
+    .meta strong { color: #334155; }
+
+    .severity-grid { display: flex; gap: 6pt; margin: 10pt 0 14pt; }
+    .sev-card { flex: 1; border: 1px solid #e2e8f0; border-radius: 6pt; padding: 8pt; text-align: center; }
+    .sev-card .num { font-size: 18pt; font-weight: bold; }
+    .sev-card .lbl { font-size: 8pt; text-transform: uppercase; color: #64748b; margin-top: 2pt; }
+    .sev-critical .num { color: #e11d48; }
+    .sev-high .num { color: #ea580c; }
+    .sev-medium .num { color: #d97706; }
+    .sev-low .num { color: #0284c7; }
+    .sev-info .num { color: #64748b; }
+
+    .kbv-summary { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6pt; padding: 10pt; margin-bottom: 12pt; }
+    .kbv-pct { font-size: 28pt; font-weight: bold; }
+    .kbv-pct.good { color: #059669; }
+    .kbv-pct.warn { color: #d97706; }
+    .kbv-pct.bad { color: #e11d48; }
+    .kbv-req { padding: 6pt 8pt; border-radius: 4pt; margin-bottom: 4pt; font-size: 9pt; border: 1px solid; }
+    .kbv-req.ok { background: #ecfdf5; border-color: #a7f3d0; }
+    .kbv-req.fail { background: #fef2f2; border-color: #fecaca; }
+    .kbv-req .code { font-weight: bold; }
+
+    .finding { border: 1px solid #e2e8f0; border-left-width: 4pt; border-radius: 4pt; padding: 8pt; margin-bottom: 6pt; page-break-inside: avoid; }
+    .finding.critical { border-left-color: #e11d48; }
+    .finding.high { border-left-color: #ea580c; }
+    .finding.medium { border-left-color: #d97706; }
+    .finding.low { border-left-color: #0284c7; }
+    .finding.info { border-left-color: #94a3b8; }
+    .finding .head { font-weight: bold; font-size: 10pt; color: #0f172a; }
+    .finding .cat { font-size: 8pt; text-transform: uppercase; color: #64748b; }
+    .finding .desc { font-size: 9pt; color: #334155; margin-top: 3pt; }
+    .finding .rec { font-size: 9pt; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 5pt 7pt; border-radius: 3pt; margin-top: 4pt; }
+    .finding .kbv { font-size: 8pt; color: #64748b; margin-top: 3pt; }
+
+    .sev-badge { display: inline-block; font-size: 7pt; padding: 1pt 4pt; border-radius: 2pt; color: white; text-transform: uppercase; font-weight: bold; margin-right: 4pt; vertical-align: middle; }
+    .sev-badge.critical { background: #e11d48; }
+    .sev-badge.high { background: #ea580c; }
+    .sev-badge.medium { background: #d97706; }
+    .sev-badge.low { background: #0284c7; }
+    .sev-badge.info { background: #94a3b8; }
+
+    footer.disclaimer { margin-top: 18pt; font-size: 8pt; color: #64748b; font-style: italic; border-top: 1px solid #e2e8f0; padding-top: 8pt; }
+  </style>
+</head>
+<body>
+
+<h1>MVZ Self-Scan Report</h1>
+<div class="meta">
+  <strong>Institution:</strong> {{ scan.institution_name }}<br>
+  <strong>Domain:</strong> {{ scan.target_domain }}<br>
+  <strong>Scan-ID:</strong> {{ scan.id }}<br>
+  <strong>Erstellt:</strong> {{ scan.created_at.strftime('%d.%m.%Y %H:%M:%S UTC') if scan.created_at }}<br>
+  <strong>Report generiert:</strong> {{ generated_at.strftime('%d.%m.%Y %H:%M:%S UTC') }}
+</div>
+
+{% set counts = scan.result.severity_counts %}
+
+<h2>Risikoprofil</h2>
+<div class="severity-grid">
+  <div class="sev-card sev-critical"><div class="num">{{ counts.get('critical', 0) }}</div><div class="lbl">Kritisch</div></div>
+  <div class="sev-card sev-high"><div class="num">{{ counts.get('high', 0) }}</div><div class="lbl">Hoch</div></div>
+  <div class="sev-card sev-medium"><div class="num">{{ counts.get('medium', 0) }}</div><div class="lbl">Mittel</div></div>
+  <div class="sev-card sev-low"><div class="num">{{ counts.get('low', 0) }}</div><div class="lbl">Niedrig</div></div>
+  <div class="sev-card sev-info"><div class="num">{{ counts.get('info', 0) }}</div><div class="lbl">Info</div></div>
+</div>
+
+{% if kbv %}
+<h2>KBV IT-Sicherheitsrichtlinie (§390 SGB V)</h2>
+<div class="kbv-summary">
+  <div class="kbv-pct {{ 'good' if kbv.totals.pct >= 80 else 'warn' if kbv.totals.pct >= 50 else 'bad' }}">{{ kbv.totals.pct }}% erfüllt</div>
+  <div style="font-size: 9pt; color: #64748b;">{{ kbv.totals.ok }} von {{ kbv.totals.total }} geprüften Anforderungen erfüllt.</div>
+</div>
+
+{% for a in kbv.anlagen %}
+<h3>{{ a.title }} — {{ a.ok_count }} ok, {{ a.fail_count }} offen</h3>
+{% for r in a.requirements %}
+<div class="kbv-req {{ r.status }}">
+  <span class="code">{{ 'OK' if r.status == 'ok' else '✗' }} · {{ r.code }}</span> — {{ r.title }}
+  {% if r.status == 'fail' %}<div style="color: #64748b; margin-top: 2pt;">{{ r.description }}</div>{% endif %}
+</div>
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+<h2>Findings ({{ scan.result.findings | length }})</h2>
+
+{% if scan.result.findings %}
+  {% for f in scan.result.findings %}
+  <div class="finding {{ f.severity }}">
+    <div class="head">
+      <span class="sev-badge {{ f.severity }}">{{ f.severity }}</span>
+      {{ f.title }}
+    </div>
+    <div class="cat">{{ f.category }}</div>
+    <div class="desc">{{ f.description }}</div>
+    {% if f.recommendation %}<div class="rec"><strong>Empfehlung:</strong> {{ f.recommendation }}</div>{% endif %}
+    {% if f.kbv_ref %}<div class="kbv">{{ f.kbv_ref }}</div>{% endif %}
+  </div>
+  {% endfor %}
+{% else %}
+  <p>Keine Auffälligkeiten festgestellt.</p>
+{% endif %}
+
+<footer class="disclaimer">
+  Dieser Bericht wurde automatisiert mit MVZ Self-Scan erstellt und bildet ausschließlich
+  passive, von außen sichtbare Sicherheitsindikatoren ab. Er ersetzt keine Pentest-Beauftragung
+  und keine rechtsverbindliche KBV-Konformitätsbewertung. Die Zuordnung zu KBV-Anlagen ist
+  eine praxistaugliche Näherung — die finale Bewertung muss durch einen Fachkundigen erfolgen.
+</footer>
+
+</body>
+</html>

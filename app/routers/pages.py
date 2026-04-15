@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.compliance.analysis import build_kbv_summary
 from app.db import get_session
 from app.models import Scan
 from app.queue import scan_queue
@@ -59,7 +62,8 @@ async def scan_detail(
     scan = await session.get(Scan, scan_id)
     if not scan:
         raise HTTPException(status_code=404, detail="Scan nicht gefunden")
-    return templates.TemplateResponse(request, "scan_detail.html", {"scan": scan})
+    kbv = build_kbv_summary(scan.result)
+    return templates.TemplateResponse(request, "scan_detail.html", {"scan": scan, "kbv": kbv})
 
 
 @router.get("/scans/{scan_id}/status", response_class=HTMLResponse)
@@ -69,4 +73,35 @@ async def scan_status_fragment(
     scan = await session.get(Scan, scan_id)
     if not scan:
         raise HTTPException(status_code=404, detail="Scan nicht gefunden")
-    return templates.TemplateResponse(request, "partials/scan_status.html", {"scan": scan})
+    kbv = build_kbv_summary(scan.result)
+    return templates.TemplateResponse(request, "partials/scan_status.html", {"scan": scan, "kbv": kbv})
+
+
+@router.get("/scans/{scan_id}/report.pdf")
+async def scan_report_pdf(
+    request: Request, scan_id: str, session: AsyncSession = Depends(get_session)
+) -> Response:
+    scan = await session.get(Scan, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan nicht gefunden")
+    if scan.status != "completed":
+        raise HTTPException(status_code=409, detail="Scan ist noch nicht abgeschlossen")
+
+    kbv = build_kbv_summary(scan.result)
+    generated_at = datetime.now(timezone.utc)
+
+    html = templates.get_template("report_pdf.html").render(
+        request=request, scan=scan, kbv=kbv, generated_at=generated_at
+    )
+
+    # Import WeasyPrint lazily so test environments without the system libs
+    # can still import this module.
+    from weasyprint import HTML  # type: ignore[import-not-found]
+
+    pdf_bytes = HTML(string=html, base_url=str(request.base_url)).write_pdf()
+    filename = f"mvz-scan-{scan.target_domain}-{scan.id[:8]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
