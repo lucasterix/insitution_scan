@@ -284,9 +284,228 @@ def _check_mongodb(ip: str, result: ScanResult) -> None:
             pass
 
 
+def _check_mysql_exposed(ip: str, result: ScanResult) -> None:
+    """MySQL: check if the handshake accepts a connection. We DON'T send credentials."""
+    sock = _tcp_connect(ip, 3306)
+    if not sock:
+        return
+    try:
+        banner = b""
+        try:
+            banner = sock.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+        if not banner or len(banner) < 5:
+            return
+        # MySQL handshake: byte 4 = protocol version, then null-terminated version string
+        banner_str = banner.decode("latin1", errors="replace")
+        # Check for "access denied" immediately (auth required = good)
+        if "access denied" in banner_str.lower():
+            return
+        # MySQL server sent a greeting → accepting connections from the internet
+        # We DON'T try to auth — just flag that MySQL is reachable and listening
+        result.add(Finding(
+            id=f"access.mysql_exposed.{ip.replace('.', '_')}",
+            title=f"MySQL auf {ip}:3306 akzeptiert Verbindungen aus dem Internet",
+            description=(
+                "Der MySQL-Server sendet ein Handshake-Paket an jeden Client der sich verbindet. "
+                "Ob ein Passwort konfiguriert ist, wurde NICHT getestet (keine Credentials gesendet). "
+                "Aber: MySQL aus dem Internet erreichbar = Brute-Force auf root/admin-Accounts möglich."
+            ),
+            severity=Severity.HIGH,
+            category="Default Access",
+            evidence={"ip": ip, "port": 3306, "banner": banner_str[:200]},
+            recommendation="MySQL per Firewall auf localhost beschränken (bind-address = 127.0.0.1).",
+        ))
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def _check_memcached(ip: str, result: ScanResult) -> None:
+    """Memcached without auth: 'stats' command should return server info."""
+    sock = _tcp_connect(ip, 11211)
+    if not sock:
+        return
+    try:
+        sock.sendall(b"stats\r\n")
+        resp = b""
+        try:
+            resp = sock.recv(4096)
+        except (socket.timeout, OSError):
+            pass
+        resp_str = resp.decode("latin1", errors="replace")
+
+        if "STAT" in resp_str:
+            result.add(Finding(
+                id=f"access.memcached_no_auth.{ip.replace('.', '_')}",
+                title=f"Memcached auf {ip}:11211 OHNE Authentifizierung",
+                description=(
+                    "Memcached antwortet auf den 'stats'-Befehl ohne Auth. "
+                    "Angreifer können alle gecachten Daten auslesen (Sessions, Tokens, "
+                    "Nutzer-Objekte) und Memcached als DDoS-Amplifier missbrauchen "
+                    "(UDP-Reflection, bekannt seit 2018 mit Verstärkungsfaktor 51.000x)."
+                ),
+                severity=Severity.CRITICAL,
+                category="Default Access",
+                evidence={"ip": ip, "port": 11211, "response_snippet": resp_str[:300]},
+                recommendation="Memcached per Firewall auf localhost beschränken oder SASL-Auth aktivieren.",
+                kbv_ref="KBV Anlage 3, DSGVO Art. 32",
+            ))
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def _check_smtp_open_relay(ip: str, result: ScanResult) -> None:
+    """SMTP open relay: try MAIL FROM + RCPT TO to an external address."""
+    sock = _tcp_connect(ip, 25)
+    if not sock:
+        return
+    try:
+        banner = b""
+        try:
+            banner = sock.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+        sock.sendall(b"EHLO mvzscan.local\r\n")
+        try:
+            sock.recv(2048)
+        except (socket.timeout, OSError):
+            pass
+        sock.sendall(b"MAIL FROM:<test@mvzscan.local>\r\n")
+        mail_resp = b""
+        try:
+            mail_resp = sock.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+        if not mail_resp or b"250" not in mail_resp:
+            sock.sendall(b"QUIT\r\n")
+            return
+        sock.sendall(b"RCPT TO:<relay-test@example.invalid>\r\n")
+        rcpt_resp = b""
+        try:
+            rcpt_resp = sock.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+        sock.sendall(b"QUIT\r\n")
+
+        rcpt_str = rcpt_resp.decode("latin1", errors="replace")
+        if rcpt_str.startswith("250"):
+            result.add(Finding(
+                id=f"access.smtp_open_relay.{ip.replace('.', '_')}",
+                title=f"SMTP Open Relay auf {ip}:25",
+                description=(
+                    "Der SMTP-Server akzeptiert RCPT TO an eine externe Domain ohne Auth. "
+                    "Das ist ein offenes Mail-Relay: Angreifer können über diesen Server "
+                    "Spam und Phishing-Mails versenden, was zur Blacklistung der IP führt."
+                ),
+                severity=Severity.HIGH,
+                category="Default Access",
+                evidence={"ip": ip, "port": 25, "rcpt_response": rcpt_str[:200]},
+                recommendation="SMTP-Relay nur für authentisierte Benutzer erlauben (Postfix: smtpd_relay_restrictions).",
+            ))
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def _assess_brute_force_risk(ip: str, open_ports: set, result: ScanResult) -> None:
+    """Assess how easy brute-forcing would be for each exposed service.
+
+    We DON'T perform actual brute-force — we calculate a risk score based on:
+    - Is the service exposed to the internet? (yes, since port is open)
+    - Does the service have built-in rate limiting? (known per protocol)
+    - Is there a WAF/fail2ban visible? (from firewall_test metadata)
+    - Can multi-try attacks bypass limits? (xmlrpc system.multicall etc.)
+    """
+    firewall = result.metadata.get("firewall_test") or {}
+    has_waf = bool(firewall.get("waf_detected"))
+    rate_limited = any(
+        r.get("rate_limited")
+        for r in (firewall.get("rate_limit_results") or [])
+    )
+
+    services_at_risk: list[dict] = []
+
+    BRUTE_RISK = {
+        22: ("SSH", "mittel", "SSH hat ChallengeResponseAuthentication, aber ohne fail2ban sind 1000+ Versuche/Minute möglich. hydra/medusa cracken schwache Passwörter in Stunden."),
+        21: ("FTP", "hoch", "FTP hat kein eingebautes Rate-Limiting. Ein Angreifer testet Credentials mit hydra unbegrenzt schnell."),
+        3389: ("RDP", "sehr hoch", "RDP hat kein Rate-Limiting. NLA schützt, aber bei deaktiviertem NLA sind Brute-Force-Angriffe mit crowbar/hydra trivial. RDP ist der #1 Ransomware-Einstiegspunkt."),
+        3306: ("MySQL", "mittel", "MySQL hat max_connect_errors (default 100), aber das lässt sich umgehen. Mit hydra/medusa gegen root + leere/schwache Passwörter."),
+        5432: ("PostgreSQL", "mittel", "PostgreSQL hat pg_hba.conf, aber bei md5-Auth ohne IP-Beschränkung ist Brute-Force mit hydra möglich."),
+        6379: ("Redis", "extrem", "Redis hat KEIN Rate-Limiting für AUTH. Ein Angreifer testet 100.000+ Passwörter/Sekunde."),
+        27017: ("MongoDB", "hoch", "MongoDB ohne --auth hat gar keine Passwort-Hürde. Mit Auth: kein Rate-Limiting, Brute-Force trivial."),
+        110: ("POP3", "hoch", "POP3 hat kein Rate-Limiting. Mailbox-Passwörter werden mit hydra in Minuten geknackt."),
+        143: ("IMAP", "hoch", "IMAP hat kein Rate-Limiting. Zugriff auf Patienten-E-Mails nach erfolgreichem Brute-Force."),
+    }
+
+    for port in sorted(open_ports):
+        if port not in BRUTE_RISK:
+            continue
+        service, risk_level, explanation = BRUTE_RISK[port]
+        services_at_risk.append({
+            "port": port,
+            "service": service,
+            "brute_force_risk": risk_level,
+            "explanation": explanation,
+            "waf_protection": has_waf,
+            "rate_limited": rate_limited,
+        })
+
+    if not services_at_risk:
+        return
+
+    result.metadata.setdefault("brute_force_assessment", {})[ip] = services_at_risk
+
+    critical_services = [s for s in services_at_risk if s["brute_force_risk"] in ("sehr hoch", "extrem")]
+    high_services = [s for s in services_at_risk if s["brute_force_risk"] == "hoch"]
+
+    lines = []
+    for s in services_at_risk:
+        protection = ""
+        if has_waf:
+            protection = " (WAF erkannt → teilweise geschützt)"
+        lines.append(
+            f"  • {s['service']} (Port {s['port']}): "
+            f"Brute-Force-Risiko **{s['brute_force_risk']}**{protection}\n"
+            f"    {s['explanation']}"
+        )
+
+    sev = Severity.HIGH if critical_services else Severity.MEDIUM if high_services else Severity.LOW
+
+    result.add(Finding(
+        id=f"access.brute_force_risk.{ip.replace('.', '_')}",
+        title=f"Brute-Force-Risikoeinschätzung: {len(services_at_risk)} exponierte Services auf {ip}",
+        description=(
+            "Für jeden offenen Service wurde bewertet, wie leicht ein Brute-Force-Angriff "
+            "wäre — basierend auf eingebautem Rate-Limiting, WAF-Schutz und bekanntem "
+            "Angreifer-Tooling:\n\n" + "\n".join(lines)
+            + ("\n\n✅ WAF erkannt — bietet teilweisen Schutz gegen automatisierte Angriffe." if has_waf else
+               "\n\n❌ Keine WAF erkannt — kein Netzwerk-Level-Schutz gegen Brute-Force.")
+        ),
+        severity=sev,
+        category="Default Access",
+        evidence={"services": services_at_risk},
+        recommendation=(
+            "1. Fail2ban/CrowdSec auf dem Server installieren (sperrt IPs nach N Fehlversuchen).\n"
+            "2. Dienste die nicht öffentlich sein müssen per Firewall auf VPN/IP-Whitelist beschränken.\n"
+            "3. Starke Passwörter erzwingen (min. 16 Zeichen, kein Wörterbuch-Wort).\n"
+            "4. MFA wo möglich (SSH: pam_google_authenticator, RDP: Duo/Azure MFA)."
+        ),
+        kbv_ref="KBV Anlage 2+3 (Zugriffskontrolle, Netzwerk-Härtung)",
+    ))
+
+
 def check_default_access(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
-    """Test unauthenticated access on every open port found by port scanner."""
-    step("Default-Access-Test (Root/Anon)", 85)
+    """Test unauthenticated access + brute-force risk on every open port."""
+    step("Default-Access + Brute-Force-Risk", 85)
 
     port_scan = result.metadata.get("active_port_scan") or {}
 
@@ -304,3 +523,15 @@ def check_default_access(domain: str, result: ScanResult, step: Callable[[str, i
 
         if 27017 in open_ports:
             _check_mongodb(ip, result)
+
+        if 3306 in open_ports:
+            _check_mysql_exposed(ip, result)
+
+        if 11211 in open_ports:
+            _check_memcached(ip, result)
+
+        if 25 in open_ports:
+            _check_smtp_open_relay(ip, result)
+
+        # Brute-force risk assessment for all exposed services
+        _assess_brute_force_risk(ip, open_ports, result)

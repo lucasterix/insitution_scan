@@ -50,8 +50,16 @@ async def create_scan(
     session: AsyncSession = Depends(get_session),
 ) -> RedirectResponse:
     domain = _normalize_domain(target_domain)
-    if not domain or "." not in domain:
-        raise HTTPException(status_code=400, detail="Ungültige Domain")
+    # Accept both domains (with dot) and IP addresses
+    import ipaddress as _ipa
+    is_valid_ip = False
+    try:
+        _ipa.ip_address(domain)
+        is_valid_ip = True
+    except ValueError:
+        pass
+    if not domain or (not is_valid_ip and "." not in domain):
+        raise HTTPException(status_code=400, detail="Ungültige Domain oder IP-Adresse")
 
     if not ownership_confirmed:
         raise HTTPException(

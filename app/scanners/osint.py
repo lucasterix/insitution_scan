@@ -85,6 +85,16 @@ def _normalize_domain(value: str) -> str:
     return value
 
 
+def _is_ip_address(value: str) -> bool:
+    """Check if the input is an IPv4 or IPv6 address rather than a domain."""
+    import ipaddress
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
 def _resolve_records(domain: str, rtype: str) -> list[str]:
     resolver = dns.resolver.Resolver()
     resolver.lifetime = 5.0
@@ -562,11 +572,18 @@ def run_osint_scan(
     deep_scan: bool = False,
     rate_limit_test: bool = False,
 ) -> dict:
-    """Execute the full OSINT scan for a domain. Returns a serializable dict."""
+    """Execute the full scan for a domain or IP. Returns a serializable dict."""
     domain = _normalize_domain(domain)
+    is_ip = _is_ip_address(domain)
     result = ScanResult(target=domain)
     result.metadata["deep_scan"] = deep_scan
     result.metadata["rate_limit_test"] = rate_limit_test
+    result.metadata["target_type"] = "ip" if is_ip else "domain"
+
+    # When scanning a raw IP, inject it as the A-record so all downstream
+    # scanners (port_scan, banner_grab, nmap, shodan, ...) work unchanged.
+    if is_ip:
+        result.metadata["dns"] = {"A": [domain], "AAAA": [], "MX": [], "NS": [], "CAA": []}
 
     def step(label: str, progress: int) -> None:
         if on_progress:
@@ -574,34 +591,39 @@ def run_osint_scan(
 
     step("Starte Scan", 1)
 
-    # Pre-fetch homepage HTML once — shared by privacy, healthcare, cms_scan,
-    # tech_fingerprint and other modules that would otherwise fetch it independently.
-    try:
-        with httpx.Client(
-            timeout=10.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
-        ) as _hc:
-            _hp = _hc.get(f"https://{domain}")
-            if _hp.status_code == 200 and "text/html" in _hp.headers.get("content-type", "").lower():
-                result.metadata["homepage_html"] = _hp.text[:500_000]
-                result.metadata["homepage_headers"] = {k.lower(): v for k, v in _hp.headers.items()}
-    except httpx.HTTPError:
-        pass
+    # Pre-fetch homepage HTML (works for both domain and IP targets).
+    for scheme in ("https", "http"):
+        try:
+            with httpx.Client(
+                timeout=10.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}, verify=False
+            ) as _hc:
+                _hp = _hc.get(f"{scheme}://{domain}")
+                if _hp.status_code == 200 and "text/html" in _hp.headers.get("content-type", "").lower():
+                    result.metadata["homepage_html"] = _hp.text[:500_000]
+                    result.metadata["homepage_headers"] = {k.lower(): v for k, v in _hp.headers.items()}
+                    break
+        except httpx.HTTPError:
+            continue
 
-    check_dns(domain, result, step)
-    check_mail_provider(domain, result, step)
-    check_email_auth(domain, result, step)
-    check_email_deep(domain, result, step)
-    crawl_site(domain, result, step)
-    check_privacy(domain, result, step)
-    check_healthcare(domain, result, step)
-    check_http(domain, result, step)
-    check_tls(domain, result, step)
-    check_tls_deep(domain, result, step)
-    check_ssllabs(domain, result, step)
-    check_subdomains(domain, result, step)
-    brute_subdomains(domain, result, step)
-    walk_subdomains(domain, result, step)
-    deep_scan_subdomains(domain, result, step)
+    # --- Domain-only modules (skip when scanning a raw IP) ---
+    if not is_ip:
+        check_dns(domain, result, step)
+        check_mail_provider(domain, result, step)
+        check_email_auth(domain, result, step)
+        check_email_deep(domain, result, step)
+        crawl_site(domain, result, step)
+        check_privacy(domain, result, step)
+        check_healthcare(domain, result, step)
+        check_http(domain, result, step)
+        check_tls(domain, result, step)
+        check_tls_deep(domain, result, step)
+        check_ssllabs(domain, result, step)
+        check_subdomains(domain, result, step)
+        brute_subdomains(domain, result, step)
+        walk_subdomains(domain, result, step)
+        deep_scan_subdomains(domain, result, step)
+
+    # --- Modules that work on both domains AND IPs ---
     check_ip_intel(domain, result, step)
     check_exposed_files(domain, result, step)
     active_port_scan(domain, result, step)
@@ -610,24 +632,29 @@ def run_osint_scan(
     check_default_access(domain, result, step)
     check_server(domain, result, step)
     check_vpn_endpoints(domain, result, step)
-    check_cookie_forensics(domain, result, step)
-    check_robots(domain, result, step)
-    check_cms(domain, result, step)
-    check_form_security(domain, result, step)
+
+    if not is_ip:
+        check_cookie_forensics(domain, result, step)
+        check_robots(domain, result, step)
+        check_cms(domain, result, step)
+        check_form_security(domain, result, step)
+
     check_tech_fingerprint(domain, result, step)
-    harvest_and_check(domain, result, step)
+
+    if not is_ip:
+        harvest_and_check(domain, result, step)
 
     if deep_scan:
         run_deep_scan(domain, result, step, rate_limit_test=rate_limit_test)
 
-    # Metadata + CVE scanners run AFTER deep scan so they see wayback PDFs
-    # and any additional tech that deep scan uncovered.
-    check_pdf_metadata(domain, result, step)
-    check_image_metadata(domain, result, step)
+    if not is_ip:
+        check_pdf_metadata(domain, result, step)
+        check_image_metadata(domain, result, step)
+
     check_known_vulns(domain, result, step)
 
-    # Step-2: targeted follow-up probes using everything collected above.
-    run_step2(domain, result, step)
+    if not is_ip:
+        run_step2(domain, result, step)
 
     enrich_findings(result)
 

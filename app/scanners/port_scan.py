@@ -36,6 +36,7 @@ CRITICAL_PORTS: list[tuple[int, Severity, str]] = [
     (8080, Severity.LOW, "HTTP Alternative"),
     (9200, Severity.HIGH, "Elasticsearch"),
     (27017, Severity.HIGH, "MongoDB"),
+    (11211, Severity.HIGH, "Memcached"),
 ]
 
 
