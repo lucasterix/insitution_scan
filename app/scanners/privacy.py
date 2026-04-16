@@ -215,28 +215,34 @@ def check_privacy(domain: str, result: ScanResult, step: Callable[[str, int], No
     https_info = (result.metadata.get("http") or {}).get("https") or {}
     headers = https_info.get("headers") or {}
 
-    # Pull HTML once for trackers; reuse for impressum is fine but trackers work on the homepage.
-    html_text = ""
-    try:
-        with httpx.Client(
-            timeout=8.0,
-            follow_redirects=True,
-            headers={"User-Agent": USER_AGENT},
-        ) as client:
-            r = client.get(f"https://{domain}")
-            if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
-                html_text = r.text[:500_000]
-                # Also re-read Set-Cookie from the live response (check_http already stored lowercase headers,
-                # but multiple cookies get lost on dict conversion). Use raw header ASCII.
-                raw_cookies: list[str] = []
-                for k, v in r.headers.multi_items() if hasattr(r.headers, "multi_items") else []:
-                    if k.lower() == "set-cookie":
-                        raw_cookies.append(v)
-                if raw_cookies:
-                    headers = dict(headers)
-                    headers["set-cookie"] = ", ".join(raw_cookies)
-    except httpx.HTTPError:
-        pass
+    # Reuse the homepage HTML + Set-Cookie list captured by osint.py (saves ~8s).
+    html_text = result.metadata.get("homepage_html", "") or ""
+    raw_cookies = result.metadata.get("homepage_cookies_raw")
+
+    if not html_text or raw_cookies is None:
+        # Fallback fetch when called outside the standard pipeline.
+        try:
+            with httpx.Client(
+                timeout=8.0,
+                follow_redirects=True,
+                headers={"User-Agent": USER_AGENT},
+            ) as client:
+                r = client.get(f"https://{domain}")
+                if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
+                    if not html_text:
+                        html_text = r.text[:500_000]
+                    if raw_cookies is None:
+                        raw_cookies = []
+                        if hasattr(r.headers, "multi_items"):
+                            for k, v in r.headers.multi_items():
+                                if k.lower() == "set-cookie":
+                                    raw_cookies.append(v)
+        except httpx.HTTPError:
+            pass
+
+    if raw_cookies:
+        headers = dict(headers)
+        headers["set-cookie"] = ", ".join(raw_cookies)
 
     if html_text:
         _check_trackers(html_text, domain, result)

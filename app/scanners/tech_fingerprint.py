@@ -55,15 +55,16 @@ def check_tech_fingerprint(domain: str, result: ScanResult, step) -> None:  # ty
             recommendation="Version aus dem Server-Header entfernen (z.B. nginx: server_tokens off;).",
         ))
 
-    # Fetch root HTML for meta generator + common JS libs (already stable via existing httpx).
-    html_text = ""
-    try:
-        with httpx.Client(timeout=8.0, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
-            r = client.get(f"https://{domain}")
-            if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
-                html_text = r.text[:200_000]  # cap to 200k
-    except httpx.HTTPError:
-        pass
+    # Use shared homepage HTML cache from osint.py (saves ~8s redundant HTTP fetch).
+    html_text = result.metadata.get("homepage_html", "")
+    if not html_text:
+        try:
+            with httpx.Client(timeout=8.0, headers={"User-Agent": USER_AGENT}, follow_redirects=True) as client:
+                r = client.get(f"https://{domain}")
+                if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
+                    html_text = r.text[:200_000]
+        except httpx.HTTPError:
+            pass
 
     if html_text:
         mg = META_GENERATOR_RE.search(html_text)

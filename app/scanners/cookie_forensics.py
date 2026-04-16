@@ -76,15 +76,29 @@ def _collect_cookies(response: httpx.Response) -> list[tuple[str, str]]:
 def check_cookie_forensics(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("Cookie-Forensik", 89)
 
-    try:
-        with httpx.Client(
-            timeout=6.0, follow_redirects=False, headers={"User-Agent": USER_AGENT}
-        ) as client:
-            r = client.get(f"https://{domain}")
-    except httpx.HTTPError:
-        return
+    # Use shared cookies from osint.py pre-fetch (saves ~6s redundant HTTP).
+    raw_cookies = result.metadata.get("homepage_cookies_raw")
 
-    cookies = _collect_cookies(r)
+    if raw_cookies is None:
+        # Fallback: do a fresh fetch (e.g., when called outside the standard pipeline).
+        try:
+            with httpx.Client(
+                timeout=6.0, follow_redirects=False, headers={"User-Agent": USER_AGENT}
+            ) as client:
+                r = client.get(f"https://{domain}")
+            cookies = _collect_cookies(r)
+        except httpx.HTTPError:
+            return
+    else:
+        # Parse from cached raw set-cookie list
+        cookies = []
+        for raw in raw_cookies:
+            first_part = raw.split(";", 1)[0].strip()
+            if "=" not in first_part:
+                continue
+            name, value = first_part.split("=", 1)
+            cookies.append((name.strip(), value.strip()))
+
     if not cookies:
         return
 

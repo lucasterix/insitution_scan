@@ -610,6 +610,7 @@ def run_osint_scan(
     step("Starte Scan", 1)
 
     # Pre-fetch homepage HTML (works for both domain and IP targets).
+    # Also captures set-cookie list for cookie_forensics so it doesn't re-fetch.
     for scheme in ("https", "http"):
         try:
             with httpx.Client(
@@ -619,6 +620,13 @@ def run_osint_scan(
                 if _hp.status_code == 200 and "text/html" in _hp.headers.get("content-type", "").lower():
                     result.metadata["homepage_html"] = _hp.text[:500_000]
                     result.metadata["homepage_headers"] = {k.lower(): v for k, v in _hp.headers.items()}
+                    # Capture all Set-Cookie headers (httpx supports get_list)
+                    raw_cookies: list[str] = []
+                    if hasattr(_hp.headers, "get_list"):
+                        raw_cookies = _hp.headers.get_list("set-cookie") or []
+                    elif _hp.headers.get("set-cookie"):
+                        raw_cookies = [_hp.headers["set-cookie"]]
+                    result.metadata["homepage_cookies_raw"] = raw_cookies
                     break
         except httpx.HTTPError:
             continue
