@@ -281,6 +281,26 @@ ENRICHMENTS: dict[str, dict[str, str]] = {
         "legal": "KBV Anlage 3 (Netzwerk-Segmentierung), DSGVO Art. 32",
         "exploit": "MySQL aus dem Internet erreichbar: Selbst wenn ein Passwort gesetzt ist, kann ein Angreifer per Brute-Force (hydra/medusa) oder über bekannte MySQL-CVEs (Authentication Bypass) Zugriff auf die Datenbank erlangen. Bei Erfolg: SELECT * FROM patienten → kompletter Datenexport.",
     },
+    "remote.web.connectwise_screenconnect": {
+        "legal": "KBV Anlage 3 (Remote-Zugänge), DSGVO Art. 32, BSI SYS.1.1",
+        "exploit": "ConnectWise ScreenConnect hatte im Feb 2024 einen kritischen Auth-Bypass (CVE-2024-1709, CVSS 10.0). Ein Angreifer erstellt ohne Login einen Admin-Account und hat Fernzugriff auf ALLE verwalteten Praxis-PCs. Hunderte Arztpraxen wurden über ihre IT-Dienstleister so kompromittiert.",
+    },
+    "remote.web.apache_guacamole": {
+        "legal": "KBV Anlage 3, DSGVO Art. 32",
+        "exploit": "Guacamole aus dem Internet: Ein Angreifer mit Default-Credentials (guacadmin/guacadmin) hat RDP/SSH/VNC-Zugriff auf jeden konfigurierten Praxis-PC — über den Browser, ohne VPN.",
+    },
+    "remote.mgmt.": {
+        "legal": "KBV Anlage 3 (Netzwerk-Segmentierung), BSI SYS.1.1",
+        "exploit": "IPMI/iLO/iDRAC aus dem Internet: Factory-Default-Credentials (ADMIN/ADMIN bei IPMI, admin/password bei iDRAC) geben Pre-Boot-Hardware-Zugriff. Ein Angreifer kann das Betriebssystem über die virtuelle KVM-Konsole neu installieren, BIOS-Einstellungen ändern oder den Server physisch ein-/ausschalten.",
+    },
+    "remote.html_ref.teamviewer": {
+        "legal": "KBV Anlage 3, DSGVO Art. 32 (Zugriffskontrolle)",
+        "exploit": "TeamViewer auf Praxis-PCs: Wenn Unattended Access mit schwachem Passwort (z.B. '1234' oder 'praxis') konfiguriert ist, kann ein Angreifer jederzeit den Desktop übernehmen. 2024 wurden mehrere IT-Dienstleister über kompromittierte TeamViewer-Zugänge gehackt — die Angreifer hatten Zugriff auf alle verwalteten Kunden-PCs.",
+    },
+    "remote.html_ref.anydesk": {
+        "legal": "KBV Anlage 3, DSGVO Art. 32",
+        "exploit": "AnyDesk auf Praxis-PCs: AnyDesk hatte im Feb 2024 einen Datendiebstahl bei dem Code-Signing-Zertifikate gestohlen wurden. Angreifer konnten manipulierte AnyDesk-Updates verteilen. Für MVZ: Unattended Access nur mit starkem Passwort + Allowlist, Software-Version regelmäßig prüfen.",
+    },
 }
 
 
