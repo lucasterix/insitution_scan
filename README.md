@@ -3,14 +3,16 @@
   <img src="https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-green" />
-  <img src="https://img.shields.io/badge/Scanners-38_Module-orange" />
+  <img src="https://img.shields.io/badge/Scanners-45+_Module-orange" />
+  <img src="https://img.shields.io/badge/nmap-7.95-blue?logo=nmap" />
+  <img src="https://img.shields.io/badge/nuclei-3.7-purple" />
   <img src="https://img.shields.io/badge/Deploy-GitHub_Actions-black?logo=githubactions" />
 </p>
 
 <h1 align="center">MVZ Self-Scan</h1>
 <p align="center">
   <strong>Automatisiertes Pentest-Self-Assessment für Medizinische Versorgungszentren</strong><br>
-  38 Scanner-Module | KBV §390 SGB V Compliance | DSGVO-Prüfung | Prüffähiger PDF-Report
+  45+ Scanner-Module | nmap + nuclei | KBV §390 SGB V | DSGVO | WAF-Test | Prüffähiger PDF-Report
 </p>
 
 <p align="center">
@@ -27,6 +29,9 @@ MVZ Self-Scan ist ein spezialisiertes Pentest-Self-Assessment-Tool für den deut
 - **Einen prüffähigen PDF-Report** (9 Kapitel, nach §390 SGB V / DSGVO Art. 32 / BSI-Grundschutz strukturiert)
 - **Healthcare-spezifische Checks** die kein generisches Tool abdeckt (KIM, TI-Konnektor, PVS-Fingerprint, Doctolib/Samedi-Widgets)
 - **Step-2 Analyse** die gewonnene Informationen aus Step 1 für gezielte Folge-Probes verwendet
+- **Automatische Finding-Enrichment** mit exakter Rechtsgrundlage (DSGVO Art., §390 SGB V, BSI-Grundschutz) und konkretem Exploit-Szenario aus der betrieblichen Praxis zu jedem Befund (45 Enrichment-Regeln)
+- **nmap** (v7.95) Service-Version-Detection mit -sV und **nuclei** (v3.7) für aktive CVE-Exploit-Verification
+- **Aggressive Tests** (optional) mit WAF-Detection, Payload-Block-Threshold und Rate-Limit-Prüfung
 
 Ein Scan dauert **15–45 Sekunden** (Normal) bzw. **2–5 Minuten** (Deep-Scan).
 
@@ -172,7 +177,20 @@ Ein Scan dauert **15–45 Sekunden** (Normal) bzw. **2–5 Minuten** (Deep-Scan)
 | False-Positive-Filter | CVEs vor 2019 werden ignoriert (außer in KEV) | — |
 | Redis-Cache (24h) | NVD-Responses werden gecacht → Repeat-Scans sind instant | — |
 
-### 10. Deep Scan (11 Module, optional)
+### 10. Firewall / WAF (Aggressive Tests, optional)
+| Check | Schwachstelle | Severity |
+|-------|---------------|----------|
+| WAF-Vendor-Detection (18 Fingerprints) | Cloudflare, AWS WAF, ModSecurity, Sucuri, Imperva, F5, Akamai, Barracuda, DenyAll, Plesk | INFO |
+| Payload-Block-Threshold | 9 Canary-Payloads (SQLi, XSS, Path Traversal, RFI, Cmd Injection, Log4j) — wie viele blockt die WAF? | HIGH–INFO |
+| Rate-Limit-Test (15 Rapid-Fire Requests) | Login-/API-Endpunkte ohne HTTP 429 → Brute-Force möglich | HIGH |
+
+### 11. nmap Service-Detection
+| Check | Schwachstelle | Severity |
+|-------|---------------|----------|
+| nmap -sT -sV --top-ports 100 | Exakte Service-Identifikation via Protokoll-Probing (besser als Banner-Grab) | INFO |
+| Versions-Feed ins CVE-Matching | Jede erkannte Version → NVD/KEV/EPSS automatisch | variiert |
+
+### 12. Deep Scan (13 Module, optional)
 | Check | Schwachstelle | Severity |
 |-------|---------------|----------|
 | DNS Zone Transfer (AXFR) | Gesamte Zone auslesbar | CRITICAL |
@@ -228,6 +246,7 @@ Ein Scan dauert **15–45 Sekunden** (Normal) bzw. **2–5 Minuten** (Deep-Scan)
 | **Frontend** | Jinja2, HTMX 2.0, Tailwind CSS (CDN) |
 | **PDF-Report** | WeasyPrint (A4, 9 Kapitel, Deckblatt, Inhaltsverzeichnis) |
 | **Auth** | bcrypt, Starlette SessionMiddleware, signed cookie |
+| **Security Tools** | nmap 7.95 (Service Detection), nuclei 3.7 (CVE Templates) |
 | **Deploy** | Docker Compose, GitHub Actions → GHCR → SSH Deploy |
 | **TLS** | nginx Reverse-Proxy, Let's Encrypt / certbot |
 
@@ -419,7 +438,13 @@ Step-2: TLS-SAN → Subdomain-Takeover → DNS-Rebinding → SPF-Chain →
 
 ## Roadmap
 
-- [ ] **Nuclei Integration** — Docker-Sidecar für XSS/SQLi/RCE-Canary-Templates
+- [x] **Nuclei Integration** — CVE/WordPress/Default-Login/Misconfig Templates
+- [x] **nmap Integration** — Service Version Detection (-sV)
+- [x] **WAF/Firewall-Test** — Payload-Block-Threshold + Rate-Limiting
+- [x] **Finding-Enrichment** — 45 Regeln mit Rechtsgrundlage + Exploit-Beispiel
+- [x] **Subdomain-Brute-Force** — 200-Wort DNS-Wordlist
+- [x] **CSRF/MFA-Detection** — Form-Security-Scanner
+- [x] **Forward-Secrecy-Check** — Lokale Cipher-Inspektion
 - [ ] **Authentisierte Scans** — Login-Flow → Session-Replay → Behind-Auth-Testing
 - [ ] **Scheduled Re-Scans** — rq-scheduler + Delta-Alerts bei neuem CRITICAL
 - [ ] **Multi-Tenant** — Organisationen, Nutzer-Rollen, Scan-Ownership

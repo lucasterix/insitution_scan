@@ -71,17 +71,22 @@
       </label>
     </div>
 
-    <!-- Rate limit test toggle (separate, because it triggers firewalls) -->
+    <!-- Aggressive tests toggle (triggers firewalls) -->
     <div class="border-2 border-orange-200 bg-orange-50 rounded-lg p-4">
       <label class="flex items-start gap-3 cursor-pointer">
         <input type="checkbox" name="rate_limit_test" value="yes"
                class="mt-1 w-5 h-5 text-orange-600 rounded focus:ring-orange-500">
         <div class="text-sm text-orange-900">
-          <strong>Rate-Limit-Test aktivieren</strong>
+          <strong>Aggressive Tests (Firewall / WAF / Rate-Limit)</strong>
           <div class="text-xs mt-1 text-orange-800">
-            Sendet 15 schnelle Requests an Login-/API-Endpunkte, um zu prüfen ob Rate-Limiting
-            (HTTP 429) greift. <strong>Achtung:</strong> Kann WAF/IDS/Firewall-Alerts auf dem Zielsystem
-            auslösen. Nur aktivieren wenn die Firewall-Admins informiert sind.
+            <strong class="text-orange-950">⚡ Löst Firewall-Alerts aus.</strong> Enthält:
+            <ul class="mt-1 ml-4 list-disc space-y-0.5">
+              <li>WAF-Erkennung (Cloudflare, AWS WAF, ModSecurity, Sucuri, Imperva, F5, Akamai)</li>
+              <li>Payload-Block-Threshold (SQLi-, XSS-, Path-Traversal-, Log4j-Canaries)</li>
+              <li>Rate-Limit-Test (15 Rapid-Fire-Requests auf Login-/API-Endpunkte)</li>
+              <li>Response-Timing-Analyse</li>
+            </ul>
+            <div class="mt-1">Nur aktivieren wenn der Firewall-/IT-Admin informiert ist.</div>
           </div>
         </div>
       </label>

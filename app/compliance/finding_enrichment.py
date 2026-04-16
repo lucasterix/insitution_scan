@@ -149,6 +149,86 @@ ENRICHMENTS: dict[str, dict[str, str]] = {
         "legal": "OWASP Top 10 A07 (Auth Failures), DSGVO Art. 32",
         "exploit": "Der JWT im Cookie hat alg=none — keine Signaturprüfung. Der Angreifer öffnet die Browser-DevTools, ändert im JWT 'role: user' zu 'role: admin', und ist sofort Administrator der Anwendung.",
     },
+    "cookie.jwt_long_lived": {
+        "legal": "OWASP Session Management Cheat Sheet, DSGVO Art. 32",
+        "exploit": "Ein Mitarbeiter verliert sein Handy. Der Browser hat einen 365-Tage-JWT. Der Finder hat ein ganzes Jahr Zugriff auf das Praxissystem, weil der Token nicht widerrufen werden kann.",
+    },
+    "privacy.cookie_flags_missing": {
+        "legal": "OWASP Top 10 A07, BSI IT-Grundschutz APP.3.1",
+        "exploit": "Ohne Secure-Flag sendet der Browser das Session-Cookie auch über HTTP — im Praxis-WLAN kann ein Angreifer es abfangen und die Sitzung übernehmen. Ohne HttpOnly kann ein XSS-Angriff das Cookie per JavaScript auslesen.",
+    },
+    "tls.ssllabs_weak_grade": {
+        "legal": "BSI TR-02102-2 (Kryptographische Verfahren), DSGVO Art. 32",
+        "exploit": "Veraltete Cipher Suites ermöglichen BEAST/POODLE/DROWN-Angriffe. Ein Angreifer im Praxis-WLAN kann den verschlüsselten Datenverkehr entschlüsseln.",
+    },
+    "tls.legacy_protocol": {
+        "legal": "BSI TR-02102-2 (Mindest-TLS: 1.2), PCI-DSS v4.0 Req. 4.1",
+        "exploit": "TLSv1.0/1.1 und SSLv3 haben kryptographische Schwächen (POODLE, BEAST). Ein Angreifer kann Formulardaten (Patientendaten, Passwörter) im Transit entschlüsseln.",
+    },
+    "deep.graphql_introspection_open": {
+        "legal": "OWASP Top 10 A01, DSGVO Art. 32",
+        "exploit": "GraphQL-Introspection verrät die komplette API-Struktur. Ein Angreifer findet die Mutation 'deletePatient(id: Int!)' und löscht Patientendaten — oder extrahiert sie über eine offene Query.",
+    },
+    "deep.openapi_exposed": {
+        "legal": "OWASP Top 10 A01, KBV Anlage 3",
+        "exploit": "Die Swagger-Spec ist ohne Auth abrufbar. Ein Angreifer importiert sie in Postman und testet systematisch jeden Endpunkt auf fehlende Authentifizierung und IDOR.",
+    },
+    "deep.mixed_content_active": {
+        "legal": "DSGVO Art. 32, BSI IT-Grundschutz APP.3.2",
+        "exploit": "Die HTTPS-Seite lädt JS über HTTP. Im Praxis-WLAN ersetzt ein Angreifer das Script on-the-fly durch Schadcode — Keylogger, Credential-Theft, Ransomware-Download.",
+    },
+    "step2.dns_rebinding": {
+        "legal": "BSI IT-Grundschutz NET.1.1, KBV Anlage 3",
+        "exploit": "Eine öffentliche Subdomain zeigt auf 192.168.1.50 (privat). Per DNS-Rebinding kann ein Angreifer den Browser des Opfers dazu bringen, Requests an interne Drucker, NAS oder den TI-Konnektor zu senden.",
+    },
+    "firewall.no_waf_detected": {
+        "legal": "BSI IT-Grundschutz APP.3.1 (WAF), DSGVO Art. 32 (Stand der Technik)",
+        "exploit": "Ohne WAF treffen Angriffs-Payloads direkt auf die Anwendung. Ein einziger vergessener Parameter in einem Plugin reicht für SQLi. Eine WAF filtert >90% der automatisierten Angriffe.",
+    },
+    "firewall.no_payload_blocked": {
+        "legal": "BSI IT-Grundschutz APP.3.1, OWASP Top 10 A03/A07",
+        "exploit": "SQLi- und XSS-Canary-Strings werden nicht geblockt. Ein Angreifer kann über die URL-Leiste ?id=1' UNION SELECT password FROM users-- eingeben — und alle Passwort-Hashes exportieren.",
+    },
+    "firewall.rate_limit_missing": {
+        "legal": "KBV Anlage 2 (Zugriffskontrolle), OWASP A07",
+        "exploit": "Login ohne Rate-Limiting: 10.000 Passwörter/Minute per Script. Nach 2 Stunden ist das Passwort von 'empfang' erraten — Credential-Stuffing aus LeakCheck-Datenbank.",
+    },
+    "healthcare.pvs_detected": {
+        "legal": "KBV Anlage 4, MDR 2017/745",
+        "exploit": "PVS oder Doctolib-Widget im HTML erkennbar. Je genauer der Angreifer Produkt + Version kennt, desto gezielter der Angriff — fertige Exploits für populäre Praxis-Software kursieren in einschlägigen Foren.",
+    },
+    "osint.leakcheck_breached_accounts": {
+        "legal": "DSGVO Art. 33+34 (Meldepflicht), KBV Anlage 2",
+        "exploit": "empfang@praxis.de taucht in 5 Breach-Datenbanken auf — inklusive Passwort-Hash. Wenn das Passwort wiederverwendet wird: sofortiger Zugang zum Praxissystem (Credential Stuffing).",
+    },
+    "nmap.service.": {
+        "legal": "KBV Anlage 3, BSI IT-Grundschutz OPS.1.1.3",
+        "exploit": "nmap identifiziert exakte Service-Versionen. Der Angreifer sucht automatisiert nach Exploits in ExploitDB/Metasploit. Beispiel: ProFTPD 1.3.5 hat CVE-2019-12815 (RCE via Copy-Modul) — der Exploit ist ein 3-Zeilen-Script.",
+    },
+    "nuclei.": {
+        "legal": "KBV Anlage 2+3, DSGVO Art. 32",
+        "exploit": "Nuclei bestätigt aktiv: der Exploit-Pfad ist erreichbar, das System antwortet wie erwartet. Bei WordPress-Plugins: unauthentisiertes Hochladen einer Webshell, Admin-Account-Erstellung oder Remote-Code-Execution.",
+    },
+    "dns.brute_force_new_subs": {
+        "legal": "BSI IT-Grundschutz NET.1.1",
+        "exploit": "Per Brute-Force entdeckte Subdomains (dev/backup/staging) sind oft vergessene Systeme mit veralteter Software und schwachen Zugangsdaten — bevorzugter Einstiegspunkt für Angreifer.",
+    },
+    "subdomain.sensitive.": {
+        "legal": "KBV Anlage 3, BSI IT-Grundschutz NET.1.1",
+        "exploit": "staging.praxis.de enthält oft Testdaten oder echte Patientendaten, ist aber weniger gehärtet. Angreifer finden dort Default-Credentials, Debug-Modi und ungepatchte Software.",
+    },
+    "auth.csrf_token_missing": {
+        "legal": "OWASP Top 10 A01, DSGVO Art. 32",
+        "exploit": "Der Angreifer sendet eine E-Mail mit <img src='https://praxis.de/admin/user/delete?id=1'>. Wenn ein eingeloggter Admin die Mail öffnet, wird der Benutzer gelöscht — ohne Klick.",
+    },
+    "auth.mfa_not_detected": {
+        "legal": "KBV Anlage 2 (Zugriffskontrolle), BSI ORP.4.A8",
+        "exploit": "Ohne MFA genügt ein geleaktes Passwort. Der Angreifer loggt sich ein, ändert die Telefonnummer im Impressum auf seine eigene und empfängt Patientenanrufe.",
+    },
+    "auth.form_external_action": {
+        "legal": "DSGVO Art. 32 (Vertraulichkeit), OWASP A07",
+        "exploit": "Ein Login-Formular sendet Credentials an eine externe Domain — entweder SSO (legitim, prüfen!) oder ein Phishing-Indikator (Angreifer hat das Formular manipuliert).",
+    },
 }
 
 
