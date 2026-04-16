@@ -18,6 +18,7 @@ from app.scanners.base import Finding, ScanResult, Severity
 from app.scanners.cms_scan import check_cms
 from app.scanners.cookie_forensics import check_cookie_forensics
 from app.scanners.deep.runner import run_deep_scan
+from app.scanners.step2.runner import run_step2
 from app.scanners.email_auth_deep import check_email_deep
 from app.scanners.site_crawler import crawl_site
 from app.scanners.email_harvest import harvest_and_check
@@ -569,6 +570,9 @@ def run_osint_scan(
     check_pdf_metadata(domain, result, step)
     check_image_metadata(domain, result, step)
     check_known_vulns(domain, result, step)
+
+    # Step-2: targeted follow-up probes using everything collected above.
+    run_step2(domain, result, step)
 
     step("Abgeschlossen", 100)
 
