@@ -36,6 +36,7 @@ from app.compliance.finding_enrichment import enrich_findings
 from app.scanners.form_security import check_form_security
 from app.scanners.default_access import check_default_access
 from app.scanners.nmap_scan import check_nmap
+from app.scanners.os_detection import check_os_and_eol
 from app.scanners.server_analysis import check_server
 from app.scanners.subdomain_brute import brute_subdomains
 from app.scanners.tls_deep import check_tls_deep
@@ -630,6 +631,7 @@ def run_osint_scan(
     check_banners(domain, result, step)
     check_nmap(domain, result, step)
     check_default_access(domain, result, step)
+    check_os_and_eol(domain, result, step)
     check_server(domain, result, step)
     check_vpn_endpoints(domain, result, step)
 

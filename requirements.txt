@@ -21,3 +21,4 @@ pillow==10.4.0
 bcrypt==4.2.0
 itsdangerous==2.2.0
 packaging==24.2
+paramiko==3.5.0

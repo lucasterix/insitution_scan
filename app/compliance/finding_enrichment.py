@@ -253,6 +253,34 @@ ENRICHMENTS: dict[str, dict[str, str]] = {
         "legal": "DSGVO Art. 32 (Vertraulichkeit), OWASP A07",
         "exploit": "Ein Login-Formular sendet Credentials an eine externe Domain — entweder SSO (legitim, prüfen!) oder ein Phishing-Indikator (Angreifer hat das Formular manipuliert).",
     },
+    "eol.os.": {
+        "legal": "DSGVO Art. 32 (Stand der Technik), KBV Anlage 2+3 (Patch-Management), BSI OPS.1.1.3",
+        "exploit": "Das Betriebssystem erhält keine Sicherheitsupdates mehr. Jede neu entdeckte Kernel-/Systemd-/Glibc-Schwachstelle bleibt dauerhaft ungepatcht. Ransomware-Gruppen scannen gezielt nach EOL-Systemen, weil sie wissen dass dort kein Fix kommt. Beispiel: WannaCry 2017 traf primär Windows-Systeme ohne aktuelle Patches.",
+    },
+    "eol.software.": {
+        "legal": "KBV Anlage 2+3 (Patch-Management), BSI OPS.1.1.3, DSGVO Art. 32",
+        "exploit": "Die Server-Software ist End-of-Life. Neue CVEs werden zwar veröffentlicht, aber der Hersteller liefert keinen Patch mehr. Ein Angreifer nutzt z.B. einen öffentlichen Exploit für eine nginx-Lücke, die bei der aktuellen Version längst gefixt wäre — aber auf dem EOL-System bleibt das Einfallstor dauerhaft offen.",
+    },
+    "access.ssh_password_auth": {
+        "legal": "KBV Anlage 2 (Zugriffskontrolle), BSI SYS.1.1 (Allgemeiner Server), BSI TR-02102-4 (SSH)",
+        "exploit": "SSH erlaubt Passwort-Login: Ein Angreifer startet hydra -l root -P rockyou.txt ssh://ip — 1000 Passwörter/Minute. Ohne fail2ban ist das Passwort 'Praxis2024!' in unter einer Stunde geknackt. Mit Key-Only-Auth ist Brute-Force mathematisch unmöglich (2^256 Kombinationen).",
+    },
+    "access.ssh_no_auth": {
+        "legal": "KBV Anlage 2+3, DSGVO Art. 32, §203 StGB",
+        "exploit": "SSH erlaubt Login OHNE jede Authentifizierung. Ein Angreifer tippt 'ssh root@ip' und hat sofortigen Root-Zugriff auf den gesamten Server — Patientendaten, PVS, TI-Konnektor, Backups. Der schlimmste denkbare Befund.",
+    },
+    "access.memcached_no_auth": {
+        "legal": "KBV Anlage 3, DSGVO Art. 32",
+        "exploit": "Memcached ohne Auth: Der Angreifer liest alle gecachten Session-Tokens, API-Keys und Nutzerobjekte. Zusätzlich: Memcached-DDoS-Amplification (UDP-Reflection mit Faktor 51.000x) — der Server der Praxis wird ungewollt zur Angriffswaffe gegen Dritte.",
+    },
+    "access.smtp_open_relay": {
+        "legal": "BSI IT-Grundschutz APP.5.3 (Mail-Transport), DSGVO Art. 32",
+        "exploit": "Offenes Mail-Relay: Angreifer nutzen den SMTP-Server um 100.000 Spam-/Phishing-Mails zu versenden. Die IP der Praxis landet auf Blacklists (Spamhaus, Barracuda), danach können echte Praxis-E-Mails nicht mehr zugestellt werden — Patienten erhalten keine Befunde, Terminbestätigungen gehen verloren.",
+    },
+    "access.mysql_exposed": {
+        "legal": "KBV Anlage 3 (Netzwerk-Segmentierung), DSGVO Art. 32",
+        "exploit": "MySQL aus dem Internet erreichbar: Selbst wenn ein Passwort gesetzt ist, kann ein Angreifer per Brute-Force (hydra/medusa) oder über bekannte MySQL-CVEs (Authentication Bypass) Zugriff auf die Datenbank erlangen. Bei Erfolg: SELECT * FROM patienten → kompletter Datenexport.",
+    },
 }
 
 
