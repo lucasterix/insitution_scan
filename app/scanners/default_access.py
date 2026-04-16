@@ -426,7 +426,11 @@ def _assess_brute_force_risk(ip: str, open_ports: set, result: ScanResult) -> No
     - Can multi-try attacks bypass limits? (xmlrpc system.multicall etc.)
     """
     firewall = result.metadata.get("firewall_test") or {}
-    has_waf = bool(firewall.get("waf_detected"))
+    # firewall_test runs inside the deep scan which happens AFTER this check in
+    # the pipeline. "firewall_known" distinguishes "we didn't run the test" from
+    # "we ran it and there was no WAF".
+    firewall_known = bool(firewall)
+    has_waf = bool(firewall.get("waf_detected")) or bool(firewall.get("waf_behavioral"))
     rate_limited = any(
         r.get("rate_limited")
         for r in (firewall.get("rate_limit_results") or [])
@@ -480,15 +484,20 @@ def _assess_brute_force_risk(ip: str, open_ports: set, result: ScanResult) -> No
 
     sev = Severity.HIGH if critical_services else Severity.MEDIUM if high_services else Severity.LOW
 
+    if has_waf:
+        waf_note = "\n\n✅ WAF erkannt — bietet teilweisen Schutz gegen automatisierte Angriffe."
+    elif firewall_known:
+        waf_note = "\n\n❌ Keine WAF erkannt — kein Netzwerk-Level-Schutz gegen Brute-Force."
+    else:
+        waf_note = ""  # firewall_test didn't run (non-deep scan); don't speculate.
+
     result.add(Finding(
         id=f"access.brute_force_risk.{ip.replace('.', '_')}",
         title=f"Brute-Force-Risikoeinschätzung: {len(services_at_risk)} exponierte Services auf {ip}",
         description=(
             "Für jeden offenen Service wurde bewertet, wie leicht ein Brute-Force-Angriff "
             "wäre — basierend auf eingebautem Rate-Limiting, WAF-Schutz und bekanntem "
-            "Angreifer-Tooling:\n\n" + "\n".join(lines)
-            + ("\n\n✅ WAF erkannt — bietet teilweisen Schutz gegen automatisierte Angriffe." if has_waf else
-               "\n\n❌ Keine WAF erkannt — kein Netzwerk-Level-Schutz gegen Brute-Force.")
+            "Angreifer-Tooling:\n\n" + "\n".join(lines) + waf_note
         ),
         severity=sev,
         category="Default Access",

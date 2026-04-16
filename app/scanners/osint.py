@@ -725,7 +725,6 @@ def run_osint_scan(
         run(check_cms, domain, result, step)
         run(check_form_security, domain, result, step)
 
-    run(check_default_creds, domain, result, step)
     run(check_tech_fingerprint, domain, result, step)
 
     if not is_ip:
@@ -733,6 +732,11 @@ def run_osint_scan(
 
     if deep_scan:
         run(run_deep_scan, domain, result, step, rate_limit_test=rate_limit_test)
+
+    # default_creds + default_access depend on deep-scan metadata (wayback live_hits,
+    # directory_fuzz paths, firewall_test WAF state). Run AFTER the deep scan so the
+    # risk assessment accounts for those signals.
+    run(check_default_creds, domain, result, step)
 
     if not is_ip:
         run(check_pdf_metadata, domain, result, step)

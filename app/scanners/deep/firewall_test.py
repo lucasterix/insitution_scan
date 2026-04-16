@@ -145,9 +145,14 @@ def check_firewall(domain: str, result: ScanResult, step: Callable[[str, int], N
                 "statuses": statuses,
             })
 
+    # Behavioral WAF detection: if multiple canary payloads get 403/406/429/503,
+    # some WAF/filter IS active even if we couldn't fingerprint the vendor.
+    behavioral_waf = len(blocked_at) >= 3
+
     # --- Store results ---
     result.metadata["firewall_test"] = {
         "waf_detected": waf_vendors,
+        "waf_behavioral": behavioral_waf,
         "canary_blocked": len(blocked_at),
         "canary_passed": len(passed),
         "blocked_payloads": blocked_at,
@@ -157,28 +162,67 @@ def check_firewall(domain: str, result: ScanResult, step: Callable[[str, int], N
 
     # --- Emit findings ---
 
-    # WAF detection
+    # WAF detection — three outcomes, no contradictions:
     if waf_vendors:
+        # If the vendor is detected but NO payloads got blocked, the WAF is present
+        # but permissive. Reflect that in the message so it doesn't read as a clean win.
+        if passed and not blocked_at:
+            result.add(Finding(
+                id="firewall.waf_permissive",
+                title=f"WAF erkannt ({', '.join(waf_vendors)}) aber permissiv konfiguriert",
+                description=(
+                    f"Header-Fingerprint weist auf {', '.join(waf_vendors)} hin, aber keine der "
+                    f"{len(passed)} Canary-Payloads (SQLi, XSS, Path-Traversal, RFI, CMD-Injection, Log4j) "
+                    "wurde geblockt. Die WAF ist aktiv, filtert aber keine bekannten Angriffsmuster — "
+                    "typisch für Rate-Limiting-only-Setups oder WAFs die nur DDoS abfangen."
+                ),
+                severity=Severity.MEDIUM,
+                category="Firewall",
+                evidence={"waf_vendors": waf_vendors, "passed_payloads": passed},
+                recommendation=(
+                    f"{', '.join(waf_vendors)} Regelwerk auf OWASP Core Rule Set (CRS) umstellen "
+                    "bzw. bei Cloudflare 'Managed Rules' aktivieren."
+                ),
+            ))
+        else:
+            result.add(Finding(
+                id="firewall.waf_detected",
+                title=f"WAF erkannt: {', '.join(waf_vendors)}",
+                description=(
+                    f"Die Website wird durch eine Web Application Firewall geschützt: "
+                    f"{', '.join(waf_vendors)}. Das ist ein positives Signal — Angriffe werden "
+                    "auf Netzwerkebene gefiltert bevor sie die Anwendung erreichen."
+                ),
+                severity=Severity.INFO,
+                category="Firewall",
+                evidence={"waf_vendors": waf_vendors},
+            ))
+    elif behavioral_waf:
+        # Active filter observed but no vendor fingerprint — custom WAF, ModSecurity
+        # without Server header, or provider-level filtering.
         result.add(Finding(
-            id="firewall.waf_detected",
-            title=f"WAF erkannt: {', '.join(waf_vendors)}",
+            id="firewall.waf_behavioral",
+            title=f"WAF-Verhalten erkannt (Vendor unbekannt) — {len(blocked_at)} Payloads blockiert",
             description=(
-                f"Die Website wird durch eine Web Application Firewall geschützt: "
-                f"{', '.join(waf_vendors)}. Das ist ein positives Signal — Angriffe werden "
-                "auf Netzwerkebene gefiltert bevor sie die Anwendung erreichen."
+                f"In den Response-Headern ließ sich kein bekannter WAF-Anbieter identifizieren, "
+                f"ABER {len(blocked_at)} von {len(blocked_at)+len(passed)} Canary-Payloads wurden mit "
+                "HTTP 403/406/429/503 blockiert. Das deutet auf eine aktive Web-Application-Firewall hin, "
+                "vermutlich ein custom ModSecurity-Setup, provider-seitige Filter (z.B. GoDaddy DPS, "
+                "Hetzner Firewall) oder eine WAF ohne charakteristische Response-Header."
             ),
             severity=Severity.INFO,
             category="Firewall",
-            evidence={"waf_vendors": waf_vendors},
+            evidence={"blocked_count": len(blocked_at), "passed_count": len(passed)},
         ))
     else:
         result.add(Finding(
             id="firewall.no_waf_detected",
             title="Keine WAF erkannt",
             description=(
-                "In den Response-Headern wurde keine Web Application Firewall identifiziert. "
-                "Ohne WAF treffen SQL-Injection, XSS und Path-Traversal-Payloads direkt auf "
-                "die Anwendung — die letzte Verteidigungslinie ist die Eingabevalidierung im Code."
+                "Weder Response-Header noch das Verhalten bei Canary-Payloads deuten auf eine "
+                "Web-Application-Firewall hin. Ohne WAF treffen SQL-Injection, XSS und "
+                "Path-Traversal-Payloads direkt auf die Anwendung — die letzte Verteidigungslinie "
+                "ist die Eingabevalidierung im Code."
             ),
             severity=Severity.MEDIUM,
             category="Firewall",
@@ -189,7 +233,9 @@ def check_firewall(domain: str, result: ScanResult, step: Callable[[str, int], N
         ))
 
     # Canary block analysis
-    if passed and not blocked_at:
+    # When a WAF vendor was detected AND all payloads passed, we already emitted
+    # firewall.waf_permissive — skip the duplicate "no payload blocked" finding.
+    if passed and not blocked_at and not waf_vendors:
         result.add(Finding(
             id="firewall.no_payload_blocked",
             title=f"Keine der {len(passed)} Test-Payloads wurde blockiert",
