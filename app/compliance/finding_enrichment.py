@@ -225,6 +225,22 @@ ENRICHMENTS: dict[str, dict[str, str]] = {
         "legal": "BSI TR-02102-4 (SSH), BSI IT-Grundschutz SYS.1.1 (Allgemeiner Server)",
         "exploit": "SSH Protokoll Version 1 erlaubt Man-in-the-Middle-Angriffe und Session-Hijacking. Ein Angreifer im selben Netzwerk kann die SSH-Verbindung des Admins übernehmen und hat Root-Zugriff auf den Server.",
     },
+    "access.redis_no_auth": {
+        "legal": "KBV Anlage 3 (Zugriffskontrolle), DSGVO Art. 32 (Vertraulichkeit/Integrität), §203 StGB",
+        "exploit": "Redis ohne Passwort aus dem Internet: Der Angreifer führt CONFIG SET dir /root/.ssh und CONFIG SET dbfilename authorized_keys aus, schreibt seinen SSH-Key rein, und hat Root-Zugriff auf den Server. Dauert 30 Sekunden. Danach: Zugriff auf PVS, Patientendatenbank, TI-Konnektor — alles.",
+    },
+    "access.ftp_anonymous": {
+        "legal": "KBV Anlage 3 (Zugriffskontrolle), DSGVO Art. 32, BSI IT-Grundschutz APP.5.2",
+        "exploit": "Anonymer FTP-Zugang: Der Angreifer lädt eine PHP-Webshell in das Web-Root hoch (z.B. /var/www/html/shell.php), ruft sie im Browser auf, und hat Kommandozeilen-Zugriff auf den Server. Bei MVZ: Zugriff auf Patientendaten, Backups, Konfigurationsdateien.",
+    },
+    "access.elasticsearch_no_auth": {
+        "legal": "KBV Anlage 3, DSGVO Art. 32+33 (Meldepflicht bei Data Breach), §203 StGB",
+        "exploit": "Elasticsearch ohne Auth: Der Angreifer öffnet http://ip:9200/_search?q=patient im Browser und sieht alle indexierten Patientendaten. Danach: DELETE /index_name löscht alle Daten, gefolgt von einer Ransom-Note ('Zahle 0.5 BTC für Datenwiederherstellung'). Dieses Muster ('Meow Attack') betrifft seit 2020 tausende ungeschützte Elasticsearch-Instanzen.",
+    },
+    "access.mongodb_no_auth": {
+        "legal": "KBV Anlage 3, DSGVO Art. 32+33, §203 StGB",
+        "exploit": "MongoDB ohne Auth aus dem Internet: Der Angreifer verbindet sich mit mongosh, führt 'show dbs' aus, sieht alle Datenbanken (patients, appointments, billing), exportiert alles mit mongodump, und hinterlässt eine Ransomware-Note. Die 'MongoDB Apocalypse' von 2017 betraf 28.000 Server weltweit — viele im Gesundheitssektor.",
+    },
     "auth.csrf_token_missing": {
         "legal": "OWASP Top 10 A01, DSGVO Art. 32",
         "exploit": "Der Angreifer sendet eine E-Mail mit <img src='https://praxis.de/admin/user/delete?id=1'>. Wenn ein eingeloggter Admin die Mail öffnet, wird der Benutzer gelöscht — ohne Klick.",
