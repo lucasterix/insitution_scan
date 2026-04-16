@@ -62,6 +62,16 @@
 
 {# ============ RECENT SCANS ============ #}
 <section id="recent">
+  {% if request.query_params.get('batch') %}
+  <div class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3">
+    <span class="inline-flex w-6 h-6 rounded-full bg-emerald-600 text-white items-center justify-center text-sm font-bold">✓</span>
+    <p class="text-sm text-emerald-900">
+      <strong>{{ request.query_params.get('batch') }} Scans</strong> wurden der Warteschlange hinzugefügt.
+      Sie starten automatisch nacheinander — einfach hier die Seite offen lassen oder später wiederkommen.
+    </p>
+  </div>
+  {% endif %}
+
   <div class="flex items-center justify-between mb-4">
     <h2 class="text-2xl font-bold text-slate-900">Letzte Scans</h2>
     <a href="/scans/new" class="text-sm text-emerald-600 hover:text-emerald-800 font-medium">+ Neuer Scan</a>

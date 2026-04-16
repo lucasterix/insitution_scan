@@ -37,6 +37,31 @@ async def new_scan_form(request: Request, session: AsyncSession = Depends(get_se
     return await _tpl(request, session, "scan_new.html", {})
 
 
+def _parse_targets(raw: str) -> list[str]:
+    """Split raw input (lines, commas, semicolons, whitespace) into unique domain candidates."""
+    import re as _re
+    pieces = [p.strip() for p in _re.split(r"[\s,;]+", raw or "") if p.strip()]
+    # Normalize + dedupe while preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in pieces:
+        norm = _normalize_domain(p)
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(norm)
+    return out
+
+
+def _validate_target(candidate: str) -> bool:
+    import ipaddress as _ipa
+    try:
+        _ipa.ip_address(candidate)
+        return True
+    except ValueError:
+        pass
+    return "." in candidate
+
+
 @router.post("/scans")
 async def create_scan(
     request: Request,
@@ -49,17 +74,21 @@ async def create_scan(
     context_emails: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ) -> RedirectResponse:
-    domain = _normalize_domain(target_domain)
-    # Accept both domains (with dot) and IP addresses
-    import ipaddress as _ipa
-    is_valid_ip = False
-    try:
-        _ipa.ip_address(domain)
-        is_valid_ip = True
-    except ValueError:
-        pass
-    if not domain or (not is_valid_ip and "." not in domain):
-        raise HTTPException(status_code=400, detail="Ungültige Domain oder IP-Adresse")
+    targets = _parse_targets(target_domain)
+    invalid = [t for t in targets if not _validate_target(t)]
+    if not targets:
+        raise HTTPException(status_code=400, detail="Keine gültige Domain oder IP-Adresse erkannt")
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ungültige Einträge: {', '.join(invalid[:5])}",
+        )
+    # Hard cap to prevent accidental DoS of the worker queue.
+    if len(targets) > 50:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Zu viele Ziele auf einmal ({len(targets)}). Bitte maximal 50 pro Batch.",
+        )
 
     if not ownership_confirmed:
         raise HTTPException(
@@ -78,23 +107,36 @@ async def create_scan(
         if emails:
             context["extra_emails"] = emails[:20]
 
-    scan = Scan(
-        institution_name=institution_name.strip(),
-        target_domain=domain,
-        status="queued",
-        progress=0,
-        ownership_confirmed=True,
-        deep_scan=is_deep,
-        rate_limit_test=is_rate_test,
-        context=context or None,
-    )
-    session.add(scan)
+    created_ids: list[str] = []
+    inst = institution_name.strip()
+    for domain in targets:
+        scan = Scan(
+            institution_name=inst,
+            target_domain=domain,
+            status="queued",
+            progress=0,
+            ownership_confirmed=True,
+            deep_scan=is_deep,
+            rate_limit_test=is_rate_test,
+            context=context or None,
+        )
+        session.add(scan)
+        await session.flush()  # assign id without committing
+        created_ids.append(scan.id)
+
     await session.commit()
-    await session.refresh(scan)
 
-    scan_queue.enqueue(run_scan_job, scan.id, domain, is_deep, is_rate_test, job_id=f"scan-{scan.id}")
+    # Enqueue AFTER commit so the worker never picks up a row that's still in-flight.
+    for sid, domain in zip(created_ids, targets):
+        scan_queue.enqueue(
+            run_scan_job, sid, domain, is_deep, is_rate_test, job_id=f"scan-{sid}"
+        )
 
-    return RedirectResponse(url=f"/scans/{scan.id}", status_code=303)
+    # One scan → straight to its detail page. Multiple → back to index where the
+    # user sees the whole batch and can watch each one progress.
+    if len(created_ids) == 1:
+        return RedirectResponse(url=f"/scans/{created_ids[0]}", status_code=303)
+    return RedirectResponse(url="/?batch=" + str(len(created_ids)), status_code=303)
 
 
 @router.get("/scans/{scan_id}", response_class=HTMLResponse)
