@@ -8,17 +8,166 @@
      {% endif %}>
 
 {% if scan.status in ['queued', 'running'] %}
-  <div class="bg-white border border-slate-200 rounded-xl p-6 mb-6 shadow-sm">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
-        <span class="inline-block w-2 h-2 rounded-full bg-{{ color }}-500 animate-pulse"></span>
-        <span class="text-sm font-medium text-slate-700 uppercase tracking-wide">{{ scan.status }}</span>
-        {% if scan.current_step %}<span class="text-sm text-slate-500">· {{ scan.current_step }}</span>{% endif %}
+  <style>
+    @keyframes scanline { 0% { top: 0; } 100% { top: 100%; } }
+    @keyframes glitch { 0%,100% { opacity:1; } 50% { opacity:0.8; transform:translateX(2px); } }
+    @keyframes typing { from { width: 0; } to { width: 100%; } }
+    @keyframes blink { 50% { border-color: transparent; } }
+    @keyframes pulse-glow { 0%,100% { box-shadow: 0 0 5px rgba(16,185,129,0.3); } 50% { box-shadow: 0 0 20px rgba(16,185,129,0.6), 0 0 40px rgba(16,185,129,0.2); } }
+    .terminal-bg { background: #0a0e14; border: 1px solid #1a2332; }
+    .scan-grid { background-image: linear-gradient(rgba(16,185,129,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(16,185,129,0.03) 1px, transparent 1px); background-size: 20px 20px; }
+    .terminal-text { font-family: 'Courier New', 'DejaVu Sans Mono', monospace; }
+    .scanline-overlay { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, rgba(16,185,129,0.4), transparent); animation: scanline 3s linear infinite; pointer-events: none; z-index: 10; }
+    .log-entry { animation: glitch 0.1s ease-in-out; }
+  </style>
+
+  <div class="terminal-bg rounded-2xl overflow-hidden shadow-2xl mb-6" style="animation: pulse-glow 2s infinite;">
+    <!-- Header bar -->
+    <div class="flex items-center justify-between px-4 py-2 bg-[#0d1117] border-b border-[#1a2332]">
+      <div class="flex items-center gap-2">
+        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+        <span class="ml-3 text-xs text-slate-500 terminal-text">mvz-security-scan — {{ scan.target_domain }}</span>
       </div>
-      <div class="text-sm text-slate-500">{{ scan.progress }}%</div>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-emerald-500 terminal-text animate-pulse">● SCANNING</span>
+        <span class="text-xs text-slate-500 terminal-text">PID {{ scan.id[:8] }}</span>
+      </div>
     </div>
-    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-      <div class="bg-emerald-500 h-full transition-all duration-500" style="width: {{ scan.progress }}%"></div>
+
+    <!-- Terminal body -->
+    <div class="relative p-5 scan-grid" style="min-height: 280px;">
+      <div class="scanline-overlay"></div>
+
+      <!-- Progress section -->
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-3">
+          <div class="relative">
+            <svg class="w-12 h-12 -rotate-90" viewBox="0 0 36 36">
+              <circle cx="18" cy="18" r="15" fill="none" stroke="#1a2332" stroke-width="2.5"/>
+              <circle cx="18" cy="18" r="15" fill="none" stroke="#10b981" stroke-width="2.5"
+                      stroke-dasharray="{{ scan.progress * 0.94 }} 94"
+                      stroke-linecap="round" class="transition-all duration-1000"/>
+            </svg>
+            <div class="absolute inset-0 flex items-center justify-center">
+              <span class="text-emerald-400 text-xs font-bold terminal-text">{{ scan.progress }}%</span>
+            </div>
+          </div>
+          <div>
+            <div class="text-emerald-400 text-sm font-bold terminal-text tracking-wider uppercase">
+              {% if scan.status == 'queued' %}INITIALIZING{% else %}SCANNING{% endif %}
+            </div>
+            <div class="text-slate-500 text-xs terminal-text">{{ scan.target_domain }}</div>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-emerald-500 text-2xl font-bold terminal-text">{{ scan.progress }}<span class="text-sm">%</span></div>
+          <div class="text-slate-600 text-xs terminal-text">COMPLETE</div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="w-full bg-[#1a2332] rounded-full h-1.5 mb-5 overflow-hidden">
+        <div class="h-full rounded-full transition-all duration-1000 ease-out"
+             style="width: {{ scan.progress }}%; background: linear-gradient(90deg, #10b981, #34d399, #6ee7b7);
+                    box-shadow: 0 0 10px rgba(16,185,129,0.5);"></div>
+      </div>
+
+      <!-- Current module -->
+      {% if scan.current_step %}
+      <div class="mb-4 p-3 rounded-lg bg-[#0d1117] border border-[#1a2332]">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-amber-400 text-xs terminal-text">▶ ACTIVE MODULE</span>
+        </div>
+        <div class="text-emerald-300 text-sm terminal-text font-bold">
+          {{ scan.current_step }}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Simulated log output -->
+      <div class="space-y-1 terminal-text text-xs">
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[{{ scan.created_at.strftime('%H:%M:%S') if scan.created_at }}]</span>
+          <span class="text-emerald-600">INF</span> Target resolved: {{ scan.target_domain }}
+        </div>
+        {% if scan.progress >= 10 %}
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[scan]</span>
+          <span class="text-cyan-600">DNS</span> Enumerating records (A/MX/NS/TXT/CAA)...
+        </div>
+        {% endif %}
+        {% if scan.progress >= 25 %}
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[scan]</span>
+          <span class="text-cyan-600">EMAIL</span> SPF/DMARC/DKIM analysis + 18 selector brute...
+        </div>
+        {% endif %}
+        {% if scan.progress >= 42 %}
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[scan]</span>
+          <span class="text-cyan-600">CRAWL</span> BFS site crawl (depth=2, max=40 pages)...
+        </div>
+        {% endif %}
+        {% if scan.progress >= 55 %}
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[scan]</span>
+          <span class="text-purple-500">TLS</span> SSL Labs deep grade + cipher analysis...
+        </div>
+        {% endif %}
+        {% if scan.progress >= 72 %}
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[scan]</span>
+          <span class="text-cyan-600">ENUM</span> Subdomain brute-force (200 words)...
+        </div>
+        {% endif %}
+        {% if scan.progress >= 79 %}
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[scan]</span>
+          <span class="text-red-500">NMAP</span> Service detection (-sV --top-ports 100)...
+        </div>
+        {% endif %}
+        {% if scan.progress >= 85 %}
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[scan]</span>
+          <span class="text-amber-500">AUTH</span> Default access + brute-force risk assessment...
+        </div>
+        {% endif %}
+        {% if scan.progress >= 93 %}
+        <div class="text-slate-600 log-entry">
+          <span class="text-slate-700">[scan]</span>
+          <span class="text-red-500">CVE</span> NVD/KEV/EPSS enrichment pipeline...
+        </div>
+        {% endif %}
+        {% if scan.current_step %}
+        <div class="text-emerald-400 log-entry animate-pulse">
+          <span class="text-slate-700">[active]</span>
+          <span class="text-emerald-400">▶</span> {{ scan.current_step }}
+          <span class="inline-block w-1.5 h-3 bg-emerald-400 ml-1 animate-pulse"></span>
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Module grid (visual indicator of what's running) -->
+      <div class="mt-5 grid grid-cols-6 sm:grid-cols-8 md:grid-cols-12 gap-1">
+        {% for i in range(50) %}
+          {% if i < scan.progress * 0.5 %}
+            <div class="h-1.5 rounded-sm bg-emerald-500" style="opacity: {{ 0.4 + (i / 50) * 0.6 }};"></div>
+          {% elif i == (scan.progress * 0.5)|int %}
+            <div class="h-1.5 rounded-sm bg-emerald-400 animate-pulse"></div>
+          {% else %}
+            <div class="h-1.5 rounded-sm bg-[#1a2332]"></div>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="mt-3 flex items-center justify-between text-xs terminal-text text-slate-600">
+        <span>{{ scan.progress * 0.5 | int }} / ~50 modules</span>
+        <span class="text-emerald-600">
+          {% if scan.progress < 30 %}Phase 1: Reconnaissance{% elif scan.progress < 60 %}Phase 2: Active Probing{% elif scan.progress < 85 %}Phase 3: Vulnerability Analysis{% else %}Phase 4: Exploit Verification{% endif %}
+        </span>
+      </div>
     </div>
   </div>
 {% endif %}
