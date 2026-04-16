@@ -62,9 +62,26 @@
         <div class="text-sm text-emerald-900">
           <strong>Deep Scan aktivieren</strong>
           <div class="text-xs mt-1 text-emerald-800">
-            Zusätzlich: Directory-Fuzzing (150 Pfade), HTTP-Method-Probing (TRACE/PUT/DELETE),
-            DNS Zone-Transfer-Versuch (AXFR), aktive CORS-Tests, JS-File Secret-Scanning,
-            Wayback-Machine-Historie. Dauer: +2–5 Minuten. Erhöht den Traffic zum Ziel spürbar.
+            Directory-Fuzzing, HTTP-Method-Probing, Zone-Transfer, CORS-Tests, JS-Secret-Scanning,
+            Wayback-Machine, GraphQL-Introspection, OpenAPI-Parsing, Host-Header-Injection,
+            Mixed-Content, Open-Redirect, Nuclei CVE-Templates, nmap Service-Detection.
+            Dauer: +2–5 Minuten.
+          </div>
+        </div>
+      </label>
+    </div>
+
+    <!-- Rate limit test toggle (separate, because it triggers firewalls) -->
+    <div class="border-2 border-orange-200 bg-orange-50 rounded-lg p-4">
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" name="rate_limit_test" value="yes"
+               class="mt-1 w-5 h-5 text-orange-600 rounded focus:ring-orange-500">
+        <div class="text-sm text-orange-900">
+          <strong>Rate-Limit-Test aktivieren</strong>
+          <div class="text-xs mt-1 text-orange-800">
+            Sendet 15 schnelle Requests an Login-/API-Endpunkte, um zu prüfen ob Rate-Limiting
+            (HTTP 429) greift. <strong>Achtung:</strong> Kann WAF/IDS/Firewall-Alerts auf dem Zielsystem
+            auslösen. Nur aktivieren wenn die Firewall-Admins informiert sind.
           </div>
         </div>
       </label>

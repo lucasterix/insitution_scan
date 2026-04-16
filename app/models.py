@@ -32,6 +32,7 @@ class Scan(Base):
     # Pentest authorisation + scan mode
     ownership_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     deep_scan: Mapped[bool] = mapped_column(Boolean, default=False)
+    rate_limit_test: Mapped[bool] = mapped_column(Boolean, default=False)
     context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # queued, running, completed, failed
     progress: Mapped[int] = mapped_column(default=0)

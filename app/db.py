@@ -29,6 +29,7 @@ async def init_db() -> None:
         for ddl in (
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS ownership_confirmed BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS deep_scan BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS rate_limit_test BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS context JSON",
         ):
             await conn.execute(text(ddl))

@@ -556,11 +556,13 @@ def run_osint_scan(
     domain: str,
     on_progress: Callable[[str, int], None] | None = None,
     deep_scan: bool = False,
+    rate_limit_test: bool = False,
 ) -> dict:
     """Execute the full OSINT scan for a domain. Returns a serializable dict."""
     domain = _normalize_domain(domain)
     result = ScanResult(target=domain)
     result.metadata["deep_scan"] = deep_scan
+    result.metadata["rate_limit_test"] = rate_limit_test
 
     def step(label: str, progress: int) -> None:
         if on_progress:
@@ -609,7 +611,7 @@ def run_osint_scan(
     harvest_and_check(domain, result, step)
 
     if deep_scan:
-        run_deep_scan(domain, result, step)
+        run_deep_scan(domain, result, step, rate_limit_test=rate_limit_test)
 
     # Metadata + CVE scanners run AFTER deep scan so they see wayback PDFs
     # and any additional tech that deep scan uncovered.

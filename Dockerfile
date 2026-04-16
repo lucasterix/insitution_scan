@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     # Pillow runtime deps for image EXIF parsing
     libjpeg62-turbo zlib1g \
+    # nmap for service version detection (-sV) and script scanning (-sC)
+    nmap \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

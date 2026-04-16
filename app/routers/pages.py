@@ -44,6 +44,7 @@ async def create_scan(
     target_domain: str = Form(...),
     ownership_confirmed: str = Form(None),
     deep_scan: str = Form(None),
+    rate_limit_test: str = Form(None),
     context_notes: str = Form(""),
     context_emails: str = Form(""),
     session: AsyncSession = Depends(get_session),
@@ -59,6 +60,7 @@ async def create_scan(
         )
 
     is_deep = bool(deep_scan)
+    is_rate_test = bool(rate_limit_test)
 
     context: dict = {}
     if context_notes.strip():
@@ -75,13 +77,14 @@ async def create_scan(
         progress=0,
         ownership_confirmed=True,
         deep_scan=is_deep,
+        rate_limit_test=is_rate_test,
         context=context or None,
     )
     session.add(scan)
     await session.commit()
     await session.refresh(scan)
 
-    scan_queue.enqueue(run_scan_job, scan.id, domain, is_deep, job_id=f"scan-{scan.id}")
+    scan_queue.enqueue(run_scan_job, scan.id, domain, is_deep, is_rate_test, job_id=f"scan-{scan.id}")
 
     return RedirectResponse(url=f"/scans/{scan.id}", status_code=303)
 

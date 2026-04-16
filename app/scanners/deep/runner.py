@@ -23,10 +23,10 @@ from app.scanners.deep.wayback import check_wayback
 from app.scanners.deep.zone_transfer import check_zone_transfer
 
 
-def run_deep_scan(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
+def run_deep_scan(domain: str, result: ScanResult, step: Callable[[str, int], None], rate_limit_test: bool = False) -> None:
     # Ordered roughly by cost: DNS-only checks first, then HTTP-heavy ones.
     # Nuclei runs last because it's the heaviest (up to 180s).
-    for fn in (
+    modules = [
         check_zone_transfer,
         check_wayback,
         check_graphql,
@@ -38,9 +38,12 @@ def run_deep_scan(domain: str, result: ScanResult, step: Callable[[str, int], No
         check_cors,
         check_js_secrets,
         check_directory_fuzz,
-        check_rate_limits,
+        check_rate_limits if rate_limit_test else None,
         check_nuclei,
-    ):
+    ]
+    for fn in modules:
+        if fn is None:
+            continue
         try:
             fn(domain, result, step)
         except Exception as e:  # noqa: BLE001 — one failing module must not kill deep scan
