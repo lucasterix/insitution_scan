@@ -32,6 +32,9 @@ from app.scanners.privacy import check_privacy
 from app.scanners.subdomain_deep import deep_scan_subdomains
 from app.scanners.subdomain_walker import walk_subdomains
 from app.scanners.tech_fingerprint import check_tech_fingerprint
+from app.scanners.form_security import check_form_security
+from app.scanners.subdomain_brute import brute_subdomains
+from app.scanners.tls_deep import check_tls_deep
 from app.scanners.vpn_endpoints import check_vpn_endpoints
 from app.scanners.vuln import check_known_vulns
 
