@@ -211,28 +211,69 @@
 <!-- ============ 1. MANAGEMENT-ZUSAMMENFASSUNG ============ -->
 <h2>1. Management-Zusammenfassung</h2>
 
+{% if dashboard and dashboard.has_data %}
 <p>
-  Die automatisierte IT-Sicherheitsprüfung der Infrastruktur von
-  <strong>{{ scan.institution_name }}</strong> ({{ scan.target_domain }})
-  hat die folgenden wesentlichen Ergebnisse erbracht:
+  Im Rahmen der beauftragten IT-Sicherheitsprüfung wurde die öffentlich erreichbare Infrastruktur
+  von <strong>{{ scan.institution_name }}</strong> ({{ scan.target_domain }}) einer umfassenden
+  automatisierten Analyse unterzogen. Die Prüfung umfasste {{ dashboard.total_findings }} Einzelprüfungen
+  in {{ dashboard.categories | length }} Prüfbereichen und ergab die Gesamtbewertung
+  <strong>Grade {{ dashboard.grade.letter }} — {{ dashboard.grade.label }}</strong>.
 </p>
 
-{% if dashboard and dashboard.has_data %}
+<p>
+  {% set crit = dashboard.counts.get('critical', 0) %}
+  {% set high = dashboard.counts.get('high', 0) %}
+  {% set med = dashboard.counts.get('medium', 0) %}
+  {% if crit > 0 %}
+  Es wurden <strong>{{ crit }} kritische Befunde</strong> identifiziert, die eine unmittelbare
+  Gefährdung der IT-Sicherheit und des Schutzes personenbezogener Daten darstellen. Diese
+  Befunde erfordern sofortige Maßnahmen — idealerweise innerhalb der nächsten 48 Stunden.
+  {% elif high > 0 %}
+  Es wurden <strong>{{ high }} hochprioritäre Befunde</strong> identifiziert, die ein erhebliches
+  Risiko für die Vertraulichkeit, Integrität oder Verfügbarkeit der Systeme darstellen.
+  Eine Behebung innerhalb der nächsten 30 Tage wird dringend empfohlen.
+  {% elif med > 0 %}
+  Es wurden {{ med }} Befunde mit mittlerer Priorität identifiziert. Die Grundkonfiguration
+  der Infrastruktur ist solide, jedoch bestehen Härtungspotenziale die im nächsten
+  Wartungsfenster adressiert werden sollten.
+  {% else %}
+  Die Infrastruktur weist eine gute Grundhärtung auf. Es wurden lediglich informative
+  Befunde und kleinere Optimierungspotenziale festgestellt.
+  {% endif %}
+</p>
+
 <div class="kpi-grid">
-  <div class="kpi-card sev-critical"><div class="num">{{ dashboard.counts.get('critical', 0) }}</div><div class="lbl">Kritisch</div></div>
-  <div class="kpi-card sev-high"><div class="num">{{ dashboard.counts.get('high', 0) }}</div><div class="lbl">Hoch</div></div>
-  <div class="kpi-card sev-medium"><div class="num">{{ dashboard.counts.get('medium', 0) }}</div><div class="lbl">Mittel</div></div>
+  <div class="kpi-card sev-critical"><div class="num">{{ crit }}</div><div class="lbl">Kritisch</div></div>
+  <div class="kpi-card sev-high"><div class="num">{{ high }}</div><div class="lbl">Hoch</div></div>
+  <div class="kpi-card sev-medium"><div class="num">{{ med }}</div><div class="lbl">Mittel</div></div>
   <div class="kpi-card sev-low"><div class="num">{{ dashboard.counts.get('low', 0) }}</div><div class="lbl">Niedrig</div></div>
   <div class="kpi-card sev-info"><div class="num">{{ dashboard.counts.get('info', 0) }}</div><div class="lbl">Info</div></div>
 </div>
 
-<h3>Sofort-Priorität</h3>
 {% if dashboard.top_risks %}
+<h3>Priorisierte Handlungsempfehlungen</h3>
+<p>Die nachfolgende Tabelle zeigt die fünf dringendsten Befunde, deren Behebung den größten
+Sicherheitsgewinn bei geringstem Aufwand verspricht:</p>
 <table><thead><tr><th style="width:12%;">Schwere</th><th style="width:20%;">Bereich</th><th>Befund</th></tr></thead><tbody>
 {% for f in dashboard.top_risks %}<tr><td><span class="sev-badge {{ f.severity }}">{{ f.severity }}</span></td><td>{{ f.category }}</td><td>{{ f.title }}</td></tr>{% endfor %}
 </tbody></table>
 {% endif %}
-{% if kbv %}<p style="margin-top:10pt;"><strong>KBV-Compliance:</strong> {{ kbv.totals.ok }}/{{ kbv.totals.total }} Anforderungen erfüllt ({{ kbv.totals.pct }}%).</p>{% endif %}
+
+{% if kbv %}
+<h3>KBV-Compliance</h3>
+<p>
+  Von den {{ kbv.totals.total }} automatisiert prüfbaren Anforderungen der KBV-IT-Sicherheitsrichtlinie
+  nach §390 SGB V werden <strong>{{ kbv.totals.ok }} erfüllt</strong> und {{ kbv.totals.fail }} sind
+  derzeit offen. Dies entspricht einer Erfüllungsquote von <strong>{{ kbv.totals.pct }}%</strong>.
+  {% if kbv.totals.pct >= 80 %}
+  Die Grundanforderungen werden weitgehend eingehalten.
+  {% elif kbv.totals.pct >= 50 %}
+  Es besteht deutlicher Nachbesserungsbedarf insbesondere bei den Anlagen 2 und 3.
+  {% else %}
+  Die Compliance-Quote liegt unter 50% — eine zeitnahe Nachbesserung ist dringend geboten.
+  {% endif %}
+</p>
+{% endif %}
 {% endif %}
 
 <!-- ============ 2. RECHTSGRUNDLAGEN ============ -->
@@ -374,7 +415,14 @@
 
 <!-- ============ 8. DETAILBEFUNDE MIT EVIDENZ ============ -->
 <h2>8. Detailbefunde mit Evidenz</h2>
-<p>Alle Befunde nach Schweregrad absteigend sortiert. Bei mangelhaften Befunden (HIGH/CRITICAL) wird der konkrete technische Beleg angezeigt.</p>
+<p>
+  Die nachfolgenden Einzelbefunde sind nach Schweregrad absteigend geordnet und beschreiben
+  jeweils die festgestellte Schwachstelle, deren potentielle Auswirkung auf die
+  Vertraulichkeit, Integrität und Verfügbarkeit der Systeme sowie eine konkrete
+  Handlungsempfehlung. Bei Befunden der Kategorien CRITICAL und HIGH wird zusätzlich
+  der technische Beleg (Evidence) im Rohformat angezeigt, um die Reproduzierbarkeit
+  des Befundes zu gewährleisten.
+</p>
 
 {% for sev_key, sev_label in [('critical','Kritische Befunde'),('high','Hohe Befunde'),('medium','Mittlere Befunde'),('low','Niedrige Befunde'),('info','Informationen')] %}
   {% set sev_findings = [] %}

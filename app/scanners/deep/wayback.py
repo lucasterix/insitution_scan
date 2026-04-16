@@ -133,21 +133,55 @@ def check_wayback(domain: str, result: ScanResult, step: Callable[[str, int], No
         ]
 
         if leak_hits:
-            result.add(Finding(
-                id="deep.wayback_live_leak",
-                title=f"{len(leak_hits)} historische Leak-Datei(en) sind noch live",
-                description=(
-                    "Die Wayback Machine hat historische URLs dieser Domain indexiert, die "
-                    "heute noch antworten. Typisch sind dies alte SQL-Dumps, Backup-Archive "
-                    "oder Konfigurationsdateien, die nach einem Rewrite auf der Seite vergessen "
-                    "wurden — ein klassisches Leak-Einfallstor."
-                ),
-                severity=Severity.HIGH,
-                category="Deep Scan",
-                evidence={"urls": [h["url"] for h in leak_hits[:20]]},
-                recommendation="Jede dieser Dateien prüfen und — wenn nicht mehr gebraucht — entfernen oder mit 404/403 blockieren.",
-                kbv_ref="KBV IT-Sicherheit §390 SGB V — Anlage 2 (Datenminimierung)",
-            ))
+            # Classify by actual danger level
+            critical_exts = (".sql", ".env", ".pem", ".key", ".bak")
+            high_exts = (".zip", ".tar", ".tar.gz", ".conf", ".config", ".log")
+
+            critical_leaks = [h for h in leak_hits if any(h["url"].lower().endswith(e) for e in critical_exts)]
+            high_leaks = [h for h in leak_hits if any(h["url"].lower().endswith(e) for e in high_exts)]
+            low_leaks = [h for h in leak_hits if h not in critical_leaks and h not in high_leaks]
+
+            if critical_leaks:
+                result.add(Finding(
+                    id="deep.wayback_critical_leak",
+                    title=f"{len(critical_leaks)} kritische historische Datei(en) noch live (SQL-Dumps, .env, Schlüssel)",
+                    description=(
+                        "Die Wayback Machine hat URLs indexiert die heute noch antworten und "
+                        "deren Dateityp auf hochsensible Inhalte hindeutet:\n\n"
+                        + "\n".join(f"  • {h['url']}" for h in critical_leaks[:10])
+                        + "\n\nSQL-Dumps enthalten die komplette Datenbank, .env-Dateien "
+                        "Passwörter und API-Keys, .pem/.key-Dateien private Schlüssel."
+                    ),
+                    severity=Severity.HIGH,
+                    category="Deep Scan",
+                    evidence={"urls": [h["url"] for h in critical_leaks[:20]]},
+                    recommendation="SOFORT entfernen oder mit 403 blockieren. Danach: Credentials in der Datei rotieren.",
+                    kbv_ref="KBV Anlage 2 (Datenminimierung), DSGVO Art. 32",
+                ))
+
+            if high_leaks:
+                result.add(Finding(
+                    id="deep.wayback_high_leak",
+                    title=f"{len(high_leaks)} historische Archiv-/Config-Datei(en) noch live",
+                    description=(
+                        "Backup-Archive und Konfigurationsdateien aus der Wayback-Machine "
+                        "sind noch erreichbar. Diese können sensible Daten enthalten."
+                    ),
+                    severity=Severity.MEDIUM,
+                    category="Deep Scan",
+                    evidence={"urls": [h["url"] for h in high_leaks[:20]]},
+                    recommendation="Prüfen ob die Dateien noch benötigt werden. Wenn nicht: entfernen.",
+                ))
+
+            if low_leaks:
+                result.add(Finding(
+                    id="deep.wayback_low_leak",
+                    title=f"{len(low_leaks)} historische Datei(en) noch live (geringes Risiko)",
+                    description="Historische Dateien sind noch erreichbar, aber der Dateityp deutet auf geringes Risiko hin.",
+                    severity=Severity.INFO,
+                    category="Deep Scan",
+                    evidence={"urls": [h["url"] for h in low_leaks[:20]]},
+                ))
 
         if doc_hits:
             # Handed to pdf_metadata at the end of the pipeline.
