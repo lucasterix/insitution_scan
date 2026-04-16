@@ -131,6 +131,107 @@ def _severity_from(cve: dict, kev_entry: Any, epss_score: float | None) -> Sever
     return Severity.INFO if not high_epss else Severity.LOW
 
 
+def _build_exploit_context(cve: dict, kev_entry: Any, epss_info: dict, component: str) -> str:
+    """Build a rich exploit-context description for a CVE finding."""
+    parts: list[str] = []
+    cve_id = cve.get("id", "")
+    cvss = cve.get("cvss_score")
+    epss = epss_info.get("epss")
+    desc_lower = (cve.get("description") or "").lower()
+
+    # KEV status
+    if kev_entry:
+        parts.append(
+            f"🔥 CISA KEV: Diese Schwachstelle wird AKTIV AUSGENUTZT "
+            f"(gelistet seit {kev_entry.date_added})."
+        )
+        if kev_entry.known_ransomware_use:
+            parts.append("⚠️ Bekanntermaßen in Ransomware-Kampagnen eingesetzt.")
+
+    # EPSS context
+    if epss is not None:
+        pct = float(epss) * 100
+        if pct >= 50:
+            parts.append(
+                f"📊 EPSS: {pct:.1f}% Wahrscheinlichkeit, dass diese Schwachstelle "
+                "innerhalb der nächsten 30 Tage in freier Wildbahn ausgenutzt wird. "
+                "Das ist extrem hoch — sofortiges Patchen ist geboten."
+            )
+        elif pct >= 10:
+            parts.append(f"📊 EPSS: {pct:.1f}% Exploit-Wahrscheinlichkeit in 30 Tagen — erhöhtes Risiko.")
+        else:
+            parts.append(f"📊 EPSS: {pct:.1f}% Exploit-Wahrscheinlichkeit in 30 Tagen.")
+
+    # Exploit type classification from description keywords
+    attack_type = None
+    if any(kw in desc_lower for kw in ("remote code execution", "rce", "arbitrary code")):
+        attack_type = "Remote Code Execution (RCE)"
+        parts.append(
+            f"🎯 Angriffstyp: {attack_type} — ein Angreifer kann aus der Ferne "
+            f"beliebigen Code auf dem Server ausführen. Bei {component} bedeutet das: "
+            "voller Systemzugriff, Datenexfiltration, Ransomware-Deployment."
+        )
+    elif any(kw in desc_lower for kw in ("authentication bypass", "auth bypass", "bypass authentication")):
+        attack_type = "Authentication Bypass"
+        parts.append(
+            f"🎯 Angriffstyp: {attack_type} — ein Angreifer umgeht die Login-Prüfung "
+            f"und erhält Zugriff auf geschützte Bereiche von {component} ohne gültige Credentials."
+        )
+    elif any(kw in desc_lower for kw in ("privilege escalation", "escalation of privilege")):
+        attack_type = "Privilege Escalation"
+        parts.append(
+            f"🎯 Angriffstyp: {attack_type} — ein Angreifer mit niedrigen Rechten "
+            "kann sich zum Administrator/Root hochstufen."
+        )
+    elif any(kw in desc_lower for kw in ("sql injection", "sqli")):
+        attack_type = "SQL Injection"
+        parts.append(
+            f"🎯 Angriffstyp: {attack_type} — ein Angreifer kann SQL-Befehle einschleusen "
+            "und die Datenbank auslesen, ändern oder löschen."
+        )
+    elif any(kw in desc_lower for kw in ("denial of service", "dos ", " dos,", "crash")):
+        attack_type = "Denial of Service"
+        parts.append(
+            f"🎯 Angriffstyp: Denial of Service — ein Angreifer kann {component} "
+            "zum Absturz bringen oder unbrauchbar machen."
+        )
+    elif any(kw in desc_lower for kw in ("information disclosure", "information leak", "sensitive information")):
+        attack_type = "Information Disclosure"
+        parts.append(
+            f"🎯 Angriffstyp: {attack_type} — ein Angreifer kann vertrauliche "
+            "Informationen (Konfiguration, Schlüssel, Patientendaten) auslesen."
+        )
+    elif any(kw in desc_lower for kw in ("path traversal", "directory traversal", "file read")):
+        attack_type = "Path Traversal / Arbitrary File Read"
+        parts.append(
+            f"🎯 Angriffstyp: {attack_type} — ein Angreifer kann beliebige Dateien "
+            "vom Server lesen (/etc/passwd, Konfigurationsdateien, private Schlüssel)."
+        )
+    elif any(kw in desc_lower for kw in ("cross-site scripting", "xss")):
+        attack_type = "Cross-Site Scripting (XSS)"
+        parts.append(
+            f"🎯 Angriffstyp: {attack_type} — ein Angreifer kann JavaScript im "
+            "Browser anderer Nutzer ausführen (Session-Hijacking, Credential-Theft)."
+        )
+
+    # Tooling hint based on CVSS severity
+    if cvss and cvss >= 9.0:
+        parts.append(
+            "🔧 Exploitation: Bei CVSS ≥ 9.0 existieren typischerweise fertige "
+            "Exploit-Module in Metasploit/ExploitDB. Automatisierte Scanner wie "
+            "Shodan markieren verwundbare Systeme innerhalb von Stunden nach "
+            "CVE-Veröffentlichung."
+        )
+    elif cvss and cvss >= 7.0:
+        parts.append(
+            "🔧 Exploitation: Proof-of-Concept-Code ist für CVSS ≥ 7.0 häufig "
+            "auf GitHub/ExploitDB verfügbar. Angreifer passen PoCs an und "
+            "integrieren sie in automatisierte Scan-/Exploit-Toolkits."
+        )
+
+    return "\n\n".join([""] + parts) if parts else ""
+
+
 def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     tech = result.metadata.get("tech") or {}
     if not tech:
@@ -141,13 +242,39 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
     for key, version in tech.items():
         if not isinstance(version, str) or not version:
             continue
+
+        # Strategy 1: Use CPE_MAP for manually mapped products.
         variants = CPE_MAP.get(key)
-        if not variants:
+        if variants:
+            display_product = variants[0][1]
+            cpe_variants = [_cpe(v, p, version) for v, p in variants]
+            candidates.append((key, display_product, version, cpe_variants))
             continue
-        # Display name uses the first variant's product.
-        display_product = variants[0][1]
-        cpe_variants = [_cpe(v, p, version) for v, p in variants]
-        candidates.append((key, display_product, version, cpe_variants))
+
+        # Strategy 2: nmap_cpe.* keys contain product names extracted from nmap
+        # XML CPE data. Build CPE strings automatically from the key name.
+        if key.startswith("nmap_cpe."):
+            product_name = key[len("nmap_cpe."):]
+            # Common vendor guesses for well-known products
+            vendor_guesses = [
+                (product_name, product_name),
+                ("apache", product_name) if "apache" in product_name.lower() else None,
+                ("openbsd", product_name) if "openssh" in product_name.lower() else None,
+                ("f5", product_name) if "nginx" in product_name.lower() else None,
+            ]
+            cpe_variants = [
+                _cpe(v, p, version)
+                for pair in vendor_guesses if pair
+                for v, p in [pair]
+            ]
+            candidates.append((key, product_name, version, cpe_variants))
+            continue
+
+        # Strategy 3: nmap.* keys from nmap service detection
+        if key.startswith("nmap."):
+            product_name = key[len("nmap."):]
+            cpe_variants = [_cpe(product_name, product_name, version)]
+            candidates.append((key, product_name, version, cpe_variants))
 
     if not candidates:
         return
@@ -243,12 +370,11 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
                 title += f" (CVSS {cve['cvss_score']})"
 
             description = cve.get("description") or "Keine Beschreibung verfügbar."
-            if kev_entry:
-                description += f"\n\nCISA KEV: in der Liste aktiv ausgenutzter Schwachstellen seit {kev_entry.date_added}."
-                if kev_entry.known_ransomware_use:
-                    description += " Wird bekanntermaßen in Ransomware-Kampagnen eingesetzt."
-            if epss_info.get("epss") is not None:
-                description += f"\n\nEPSS: {float(epss_info['epss']) * 100:.1f}% Exploit-Wahrscheinlichkeit innerhalb 30 Tagen."
+
+            # Add exploit context based on CVSS + EPSS + KEV
+            exploit_context = _build_exploit_context(cve, kev_entry, epss_info, component)
+            if exploit_context:
+                description += exploit_context
 
             result.add(Finding(
                 id=f"vuln.{cve['id']}",

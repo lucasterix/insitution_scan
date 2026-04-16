@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Callable
 
 from app.scanners.base import ScanResult
+from app.scanners.deep.exploit_chain import check_exploit_chains
 from app.scanners.step2.api_auth_test import check_api_auth
 from app.scanners.step2.dns_rebinding import check_dns_rebinding
 from app.scanners.step2.spf_chain import check_spf_chain
@@ -28,6 +29,7 @@ def run_step2(domain: str, result: ScanResult, step: Callable[[str, int], None])
         check_spf_chain,
         check_api_auth,
         check_wp_exploit_paths,
+        check_exploit_chains,
     ):
         try:
             fn(domain, result, step)
