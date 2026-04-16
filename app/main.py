@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="MVZ Self-Scan", lifespan=lifespan)
+app = FastAPI(title="MVZ Security Scan", lifespan=lifespan)
 
 PUBLIC_PATH_PREFIXES = ("/login", "/logout", "/setup", "/static", "/healthz")
 
