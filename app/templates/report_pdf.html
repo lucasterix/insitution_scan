@@ -14,8 +14,36 @@
     @page :first { margin: 0; @top-left { content: ""; } @top-right { content: ""; } @bottom-center { content: ""; } }
     @page :nth(2) { margin: 0; @top-left { content: ""; } @top-right { content: ""; } @bottom-center { content: ""; } }
 
+    /* Aptos — Microsoft corporate font (user preference). TTF files must be
+       present in app/static/fonts/ for these @font-face rules to resolve;
+       otherwise the browser falls back to the next font-family entry. */
+    @font-face {
+      font-family: "Aptos";
+      font-weight: 400;
+      font-style: normal;
+      src: url("{{ request.base_url }}static/fonts/Aptos.ttf") format("truetype");
+    }
+    @font-face {
+      font-family: "Aptos";
+      font-weight: 700;
+      font-style: normal;
+      src: url("{{ request.base_url }}static/fonts/Aptos-Bold.ttf") format("truetype");
+    }
+    @font-face {
+      font-family: "Aptos";
+      font-weight: 400;
+      font-style: italic;
+      src: url("{{ request.base_url }}static/fonts/Aptos-Italic.ttf") format("truetype");
+    }
+    @font-face {
+      font-family: "Aptos Display";
+      font-weight: 400;
+      font-style: normal;
+      src: url("{{ request.base_url }}static/fonts/Aptos-Display.ttf") format("truetype");
+    }
+
     * { box-sizing: border-box; }
-    body { font-family: "DejaVu Sans", sans-serif; color: #0f172a; font-size: 10pt; line-height: 1.5; }
+    body { font-family: "Aptos", "Aptos Display", "Segoe UI", "DejaVu Sans", sans-serif; color: #0f172a; font-size: 10pt; line-height: 1.5; }
     h1 { font-size: 22pt; margin: 0 0 6pt 0; color: #064e3b; page-break-after: avoid; }
     h2 { font-size: 14pt; margin: 20pt 0 8pt 0; color: #064e3b; border-bottom: 2pt solid #064e3b; padding-bottom: 4pt; page-break-after: avoid; }
     h3 { font-size: 11pt; margin: 12pt 0 5pt 0; color: #334155; page-break-after: avoid; }
