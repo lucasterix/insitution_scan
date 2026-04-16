@@ -576,12 +576,14 @@ def run_osint_scan(
     rate_limit_test: bool = False,
 ) -> dict:
     """Execute the full scan for a domain or IP. Returns a serializable dict."""
+    import time as _time
     domain = _normalize_domain(domain)
     is_ip = _is_ip_address(domain)
     result = ScanResult(target=domain)
     result.metadata["deep_scan"] = deep_scan
     result.metadata["rate_limit_test"] = rate_limit_test
     result.metadata["target_type"] = "ip" if is_ip else "domain"
+    result.metadata["timing"] = {}
 
     # When scanning a raw IP, inject it as the A-record so all downstream
     # scanners (port_scan, banner_grab, nmap, shodan, ...) work unchanged.
@@ -591,6 +593,19 @@ def run_osint_scan(
     def step(label: str, progress: int) -> None:
         if on_progress:
             on_progress(label, progress)
+
+    def run(fn, *args, **kwargs):
+        """Run a scanner module with timing + error isolation."""
+        start = _time.monotonic()
+        name = getattr(fn, "__name__", str(fn))
+        try:
+            fn(*args, **kwargs)
+        except Exception as e:  # noqa: BLE001
+            result.metadata.setdefault("scanner_errors", []).append({
+                "module": name, "error": f"{type(e).__name__}: {e}"
+            })
+        elapsed = round(_time.monotonic() - start, 2)
+        result.metadata["timing"][name] = elapsed
 
     step("Starte Scan", 1)
 
@@ -610,57 +625,57 @@ def run_osint_scan(
 
     # --- Domain-only modules (skip when scanning a raw IP) ---
     if not is_ip:
-        check_dns(domain, result, step)
-        check_mail_provider(domain, result, step)
-        check_email_auth(domain, result, step)
-        check_email_deep(domain, result, step)
-        crawl_site(domain, result, step)
-        check_privacy(domain, result, step)
-        check_healthcare(domain, result, step)
-        check_http(domain, result, step)
-        check_tls(domain, result, step)
-        check_tls_deep(domain, result, step)
-        check_ssllabs(domain, result, step)
-        check_subdomains(domain, result, step)
-        brute_subdomains(domain, result, step)
-        walk_subdomains(domain, result, step)
-        deep_scan_subdomains(domain, result, step)
+        run(check_dns, domain, result, step)
+        run(check_mail_provider, domain, result, step)
+        run(check_email_auth, domain, result, step)
+        run(check_email_deep, domain, result, step)
+        run(crawl_site, domain, result, step)
+        run(check_privacy, domain, result, step)
+        run(check_healthcare, domain, result, step)
+        run(check_http, domain, result, step)
+        run(check_tls, domain, result, step)
+        run(check_tls_deep, domain, result, step)
+        run(check_ssllabs, domain, result, step)
+        run(check_subdomains, domain, result, step)
+        run(brute_subdomains, domain, result, step)
+        run(walk_subdomains, domain, result, step)
+        run(deep_scan_subdomains, domain, result, step)
 
     # --- Modules that work on both domains AND IPs ---
-    check_ip_intel(domain, result, step)
-    check_exposed_files(domain, result, step)
-    active_port_scan(domain, result, step)
-    check_banners(domain, result, step)
-    check_nmap(domain, result, step)
-    check_default_access(domain, result, step)
-    check_os_and_eol(domain, result, step)
-    check_server(domain, result, step)
-    check_vpn_endpoints(domain, result, step)
-    check_remote_access(domain, result, step)
+    run(check_ip_intel, domain, result, step)
+    run(check_exposed_files, domain, result, step)
+    run(active_port_scan, domain, result, step)
+    run(check_banners, domain, result, step)
+    run(check_nmap, domain, result, step)
+    run(check_default_access, domain, result, step)
+    run(check_os_and_eol, domain, result, step)
+    run(check_server, domain, result, step)
+    run(check_vpn_endpoints, domain, result, step)
+    run(check_remote_access, domain, result, step)
 
     if not is_ip:
-        check_cookie_forensics(domain, result, step)
-        check_robots(domain, result, step)
-        check_cms(domain, result, step)
-        check_form_security(domain, result, step)
+        run(check_cookie_forensics, domain, result, step)
+        run(check_robots, domain, result, step)
+        run(check_cms, domain, result, step)
+        run(check_form_security, domain, result, step)
 
-    check_default_creds(domain, result, step)
-    check_tech_fingerprint(domain, result, step)
+    run(check_default_creds, domain, result, step)
+    run(check_tech_fingerprint, domain, result, step)
 
     if not is_ip:
-        harvest_and_check(domain, result, step)
+        run(harvest_and_check, domain, result, step)
 
     if deep_scan:
-        run_deep_scan(domain, result, step, rate_limit_test=rate_limit_test)
+        run(run_deep_scan, domain, result, step, rate_limit_test=rate_limit_test)
 
     if not is_ip:
-        check_pdf_metadata(domain, result, step)
-        check_image_metadata(domain, result, step)
+        run(check_pdf_metadata, domain, result, step)
+        run(check_image_metadata, domain, result, step)
 
-    check_known_vulns(domain, result, step)
+    run(check_known_vulns, domain, result, step)
 
     if not is_ip:
-        run_step2(domain, result, step)
+        run(run_step2, domain, result, step)
 
     enrich_findings(result)
 
