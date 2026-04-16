@@ -80,8 +80,8 @@
   <div class="grid gap-3">
     {% for s in scans %}
       {% set color = {'queued': 'slate', 'running': 'amber', 'completed': 'emerald', 'failed': 'rose'}.get(s.status, 'slate') %}
-      <a href="/scans/{{ s.id }}" class="block bg-white border border-slate-200 rounded-2xl p-5 hover:border-emerald-300 hover:shadow-md transition group">
-        <div class="flex items-center gap-4">
+      <div class="scan-row bg-white border border-slate-200 rounded-2xl p-5 hover:border-emerald-300 hover:shadow-md transition group flex items-center gap-4">
+        <a href="/scans/{{ s.id }}" class="flex items-center gap-4 flex-1 min-w-0">
           <div class="w-12 h-12 rounded-xl bg-{{ color }}-100 text-{{ color }}-700 flex items-center justify-center font-bold flex-shrink-0">
             {% if s.status == 'completed' %}✓
             {% elif s.status == 'running' %}⚡
@@ -101,8 +101,20 @@
             {{ s.created_at.strftime('%H:%M') if s.created_at }}
           </div>
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="text-slate-400 group-hover:text-emerald-600 transition flex-shrink-0"><path d="m9 18 6-6-6-6"/></svg>
-        </div>
-      </a>
+        </a>
+        <button
+          type="button"
+          hx-post="/scans/{{ s.id }}/delete"
+          hx-confirm="Diesen Scan wirklich löschen? Falls er noch läuft, wird der Job abgebrochen."
+          hx-target="closest .scan-row"
+          hx-swap="outerHTML swap:0.2s"
+          title="Scan löschen"
+          class="flex-shrink-0 w-9 h-9 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition"
+          aria-label="Scan löschen"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+        </button>
+      </div>
     {% endfor %}
   </div>
   {% endif %}

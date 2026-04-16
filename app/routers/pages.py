@@ -11,7 +11,7 @@ from app.compliance.analysis import build_kbv_summary
 from app.compliance.dashboard import build_dashboard
 from app.db import get_session
 from app.models import Scan
-from app.queue import scan_queue
+from app.queue import redis_conn, scan_queue
 from app.scanners.osint import _normalize_domain
 from app.tasks import run_scan_job
 
@@ -124,6 +124,36 @@ async def scan_status_fragment(
     return templates.TemplateResponse(
         request, "partials/scan_status.html", {"scan": scan, "kbv": kbv, "dashboard": dashboard}
     )
+
+
+@router.post("/scans/{scan_id}/delete")
+async def delete_scan(
+    request: Request, scan_id: str, session: AsyncSession = Depends(get_session)
+) -> Response:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    scan = await session.get(Scan, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan nicht gefunden")
+
+    # Best-effort cancel of the RQ job (may not exist if it already finished or was killed).
+    try:
+        from rq.job import Job
+        job = Job.fetch(f"scan-{scan_id}", connection=redis_conn)
+        job.cancel()
+        job.delete()
+    except Exception:  # noqa: BLE001
+        pass
+
+    await session.delete(scan)
+    await session.commit()
+
+    # HTMX request: empty body removes the row. Direct browser POST: redirect home.
+    if request.headers.get("hx-request"):
+        return Response(status_code=200)
+    return RedirectResponse(url="/", status_code=303)
 
 
 @router.get("/scans/{scan_id}/report.pdf")
