@@ -277,6 +277,30 @@ ENRICHMENTS: dict[str, dict[str, str]] = {
         "legal": "BSI IT-Grundschutz APP.5.3 (Mail-Transport), DSGVO Art. 32",
         "exploit": "Offenes Mail-Relay: Angreifer nutzen den SMTP-Server um 100.000 Spam-/Phishing-Mails zu versenden. Die IP der Praxis landet auf Blacklists (Spamhaus, Barracuda), danach können echte Praxis-E-Mails nicht mehr zugestellt werden — Patienten erhalten keine Befunde, Terminbestätigungen gehen verloren.",
     },
+    "idor.id_increment": {
+        "legal": "OWASP Top 10 A01 (Broken Access Control), DSGVO Art. 32 (Zugriffskontrolle), §203 StGB (ärztliche Schweigepflicht)",
+        "exploit": "Ein Angreifer ändert in der URL /api/patient/1 die ID zu /api/patient/2, /api/patient/3 usw. Ohne serverseitige Prüfung erhält er Zugriff auf die Daten aller Patienten. Mit einem einfachen Script (for i in range(10000): requests.get(f'/api/patient/{i}')) werden alle Patientenakten in Minuten exportiert.",
+    },
+    "idor.query_param": {
+        "legal": "OWASP A01, DSGVO Art. 32, §203 StGB",
+        "exploit": "Der Angreifer ändert ?patient_id=1 zu ?patient_id=2 und sieht fremde Patientendaten. Besonders gefährlich wenn die IDs vorhersagbar sind (fortlaufende Nummern statt UUIDs).",
+    },
+    "api.delete_accepted": {
+        "legal": "OWASP A01, DSGVO Art. 32 (Integrität), KBV Anlage 3",
+        "exploit": "Ein Angreifer sendet DELETE /api/appointment/1234 ohne Login und der Termin wird gelöscht. Per Script: alle Termine aller Patienten in Sekunden löschen. Meldepflicht nach DSGVO Art. 33 innerhalb 72 Stunden.",
+    },
+    "api.write_accepted": {
+        "legal": "OWASP A01, DSGVO Art. 32, KBV Anlage 3",
+        "exploit": "POST/PUT ohne Auth: Ein Angreifer erstellt falsche Termine, ändert Patientendaten oder manipuliert Befunde. Bei Medizindaten kann das lebensbedrohlich sein (falscher Blutgruppe-Eintrag, geändertes Medikament).",
+    },
+    "api.upload_exposed": {
+        "legal": "OWASP A01+A08 (Software and Data Integrity), KBV Anlage 2",
+        "exploit": "Upload-Endpoint ohne Auth: Der Angreifer lädt eine PHP-Webshell hoch (cmd.php). Über den Browser ruft er https://praxis.de/uploads/cmd.php?c=whoami auf und hat Kommandozeilen-Zugriff. Nächster Schritt: Patientendatenbank dumpen.",
+    },
+    "api.password_reset": {
+        "legal": "OWASP A07 (Identification and Authentication Failures), DSGVO Art. 32",
+        "exploit": "Passwort-Reset ohne CAPTCHA: Ein Angreifer löst für jede E-Mail-Adresse in seiner Liste (aus LeakCheck) einen Reset aus. Die Praxis-Mitarbeiter bekommen hunderte Reset-Mails → Verwirrung → Social Engineering ('Ihre IT hat einen Reset angefordert, bitte klicken Sie hier').",
+    },
     "access.mysql_exposed": {
         "legal": "KBV Anlage 3 (Netzwerk-Segmentierung), DSGVO Art. 32",
         "exploit": "MySQL aus dem Internet erreichbar: Selbst wenn ein Passwort gesetzt ist, kann ein Angreifer per Brute-Force (hydra/medusa) oder über bekannte MySQL-CVEs (Authentication Bypass) Zugriff auf die Datenbank erlangen. Bei Erfolg: SELECT * FROM patienten → kompletter Datenexport.",

@@ -15,6 +15,7 @@ from app.scanners.base import ScanResult
 from app.scanners.deep.exploit_chain import check_exploit_chains
 from app.scanners.step2.api_auth_test import check_api_auth
 from app.scanners.step2.dns_rebinding import check_dns_rebinding
+from app.scanners.step2.idor_test import check_idor
 from app.scanners.step2.spf_chain import check_spf_chain
 from app.scanners.step2.subdomain_takeover import check_subdomain_takeover
 from app.scanners.step2.tls_san_expansion import check_tls_san_expansion
@@ -28,6 +29,7 @@ def run_step2(domain: str, result: ScanResult, step: Callable[[str, int], None])
         check_dns_rebinding,
         check_spf_chain,
         check_api_auth,
+        check_idor,
         check_wp_exploit_paths,
         check_exploit_chains,
     ):
