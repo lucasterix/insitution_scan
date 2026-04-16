@@ -472,13 +472,32 @@ def check_ip_intel(domain: str, result: ScanResult, step: Callable[[str, int], N
         result.metadata["ip_intel"] = ip_reports
 
 
+def _crtsh_cache_key(domain: str) -> str:
+    return f"crtsh:{domain}"
+
+
 def check_subdomains(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("Subdomain-Enumeration (crt.sh)", 75)
     ext = tldextract.extract(domain)
     registered = f"{ext.domain}.{ext.suffix}" if ext.suffix else domain
+
+    # Redis cache for crt.sh (24h TTL) — the crt.sh JSON API is slow (~15-20s).
+    import json as _json
+    from app.queue import redis_conn as _redis
+    cache_key = f"crtsh:{registered}"
+    try:
+        cached = _redis.get(cache_key)
+        if cached:
+            subs = _json.loads(cached)
+            result.metadata["subdomains"] = subs
+            result.metadata["subdomains_cached"] = True
+            return
+    except Exception:  # noqa: BLE001
+        pass
+
     url = f"https://crt.sh/?q=%25.{registered}&output=json"
     try:
-        with httpx.Client(timeout=20.0, headers={"User-Agent": USER_AGENT}) as client:
+        with httpx.Client(timeout=25.0, headers={"User-Agent": USER_AGENT}) as client:
             r = client.get(url)
             if r.status_code == 200 and r.text.strip():
                 data = r.json()
@@ -490,6 +509,13 @@ def check_subdomains(domain: str, result: ScanResult, step: Callable[[str, int],
                             names.add(n)
                 subs = sorted(names)
                 result.metadata["subdomains"] = subs[:200]
+
+                # Cache in Redis for 24h.
+                try:
+                    _redis.setex(cache_key, 24 * 3600, _json.dumps(subs[:200]))
+                except Exception:  # noqa: BLE001
+                    pass
+
                 if len(subs) > 50:
                     result.add(Finding(
                         id="osint.many_subdomains",
@@ -538,6 +564,20 @@ def run_osint_scan(
             on_progress(label, progress)
 
     step("Starte Scan", 1)
+
+    # Pre-fetch homepage HTML once — shared by privacy, healthcare, cms_scan,
+    # tech_fingerprint and other modules that would otherwise fetch it independently.
+    try:
+        with httpx.Client(
+            timeout=10.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
+        ) as _hc:
+            _hp = _hc.get(f"https://{domain}")
+            if _hp.status_code == 200 and "text/html" in _hp.headers.get("content-type", "").lower():
+                result.metadata["homepage_html"] = _hp.text[:500_000]
+                result.metadata["homepage_headers"] = {k.lower(): v for k, v in _hp.headers.items()}
+    except httpx.HTTPError:
+        pass
+
     check_dns(domain, result, step)
     check_mail_provider(domain, result, step)
     check_email_auth(domain, result, step)

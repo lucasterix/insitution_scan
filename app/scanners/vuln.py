@@ -163,6 +163,11 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
     queries_done = 0
     total_queries = sum(len(c[3]) for c in candidates)
 
+    # Filter threshold: ignore CVEs published before this year unless they're
+    # in CISA KEV. Older NVD entries often have overly broad CPE ranges that
+    # produce false positives on modern software versions.
+    CVE_MIN_YEAR = "2019"
+
     for key, display_product, version, cpe_variants in candidates:
         component_label = f"{display_product} {version}"
         merged_cves: dict[str, dict] = {}
@@ -179,6 +184,13 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
                     time.sleep(delay)
 
             for c in cves:
+                # Skip very old CVEs unless they're in CISA KEV (actively exploited).
+                published = c.get("published") or ""
+                pub_year = published[:4]
+                if pub_year and pub_year < CVE_MIN_YEAR:
+                    kev_entry = KEVCatalog.lookup(c["id"])
+                    if not kev_entry:
+                        continue
                 merged_cves[c["id"]] = c
 
         if not merged_cves:
