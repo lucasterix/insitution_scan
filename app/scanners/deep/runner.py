@@ -17,6 +17,7 @@ from app.scanners.deep.js_secrets import check_js_secrets
 from app.scanners.deep.mixed_content import check_mixed_content
 from app.scanners.deep.nuclei_scan import check_nuclei
 from app.scanners.deep.open_redirect import check_open_redirect
+from app.scanners.deep.rate_limit_test import check_rate_limits
 from app.scanners.deep.openapi_parser import check_openapi
 from app.scanners.deep.wayback import check_wayback
 from app.scanners.deep.zone_transfer import check_zone_transfer
@@ -37,6 +38,7 @@ def run_deep_scan(domain: str, result: ScanResult, step: Callable[[str, int], No
         check_cors,
         check_js_secrets,
         check_directory_fuzz,
+        check_rate_limits,
         check_nuclei,
     ):
         try:

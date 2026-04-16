@@ -587,8 +587,10 @@ def run_osint_scan(
     check_healthcare(domain, result, step)
     check_http(domain, result, step)
     check_tls(domain, result, step)
+    check_tls_deep(domain, result, step)
     check_ssllabs(domain, result, step)
     check_subdomains(domain, result, step)
+    brute_subdomains(domain, result, step)
     walk_subdomains(domain, result, step)
     deep_scan_subdomains(domain, result, step)
     check_ip_intel(domain, result, step)
@@ -599,6 +601,7 @@ def run_osint_scan(
     check_cookie_forensics(domain, result, step)
     check_robots(domain, result, step)
     check_cms(domain, result, step)
+    check_form_security(domain, result, step)
     check_tech_fingerprint(domain, result, step)
     harvest_and_check(domain, result, step)
 
