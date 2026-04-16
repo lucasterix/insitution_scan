@@ -35,6 +35,7 @@ from app.scanners.tech_fingerprint import check_tech_fingerprint
 from app.compliance.finding_enrichment import enrich_findings
 from app.scanners.form_security import check_form_security
 from app.scanners.nmap_scan import check_nmap
+from app.scanners.server_analysis import check_server
 from app.scanners.subdomain_brute import brute_subdomains
 from app.scanners.tls_deep import check_tls_deep
 from app.scanners.vpn_endpoints import check_vpn_endpoints
@@ -605,6 +606,7 @@ def run_osint_scan(
     active_port_scan(domain, result, step)
     check_banners(domain, result, step)
     check_nmap(domain, result, step)
+    check_server(domain, result, step)
     check_vpn_endpoints(domain, result, step)
     check_cookie_forensics(domain, result, step)
     check_robots(domain, result, step)

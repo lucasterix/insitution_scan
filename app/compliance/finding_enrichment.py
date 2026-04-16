@@ -217,6 +217,14 @@ ENRICHMENTS: dict[str, dict[str, str]] = {
         "legal": "KBV Anlage 3, BSI IT-Grundschutz NET.1.1",
         "exploit": "staging.praxis.de enthält oft Testdaten oder echte Patientendaten, ist aber weniger gehärtet. Angreifer finden dort Default-Credentials, Debug-Modi und ungepatchte Software.",
     },
+    "server.shared_hosting.": {
+        "legal": "DSGVO Art. 32 (Auftragsverarbeitung, TOM), KBV Anlage 3 (Netzwerk-Segmentierung)",
+        "exploit": "Auf demselben Server läuft auch die Website einer anderen Firma. Deren WordPress wird gehackt → der Angreifer nutzt einen Symlink-/Shared-Memory-Angriff um auf das DocumentRoot der Praxis zuzugreifen. Ergebnis: kompletter Zugriff auf die Praxis-Website und alle darüber erreichbaren Daten.",
+    },
+    "server.ssh_protocol_v1": {
+        "legal": "BSI TR-02102-4 (SSH), BSI IT-Grundschutz SYS.1.1 (Allgemeiner Server)",
+        "exploit": "SSH Protokoll Version 1 erlaubt Man-in-the-Middle-Angriffe und Session-Hijacking. Ein Angreifer im selben Netzwerk kann die SSH-Verbindung des Admins übernehmen und hat Root-Zugriff auf den Server.",
+    },
     "auth.csrf_token_missing": {
         "legal": "OWASP Top 10 A01, DSGVO Art. 32",
         "exploit": "Der Angreifer sendet eine E-Mail mit <img src='https://praxis.de/admin/user/delete?id=1'>. Wenn ein eingeloggter Admin die Mail öffnet, wird der Benutzer gelöscht — ohne Klick.",
