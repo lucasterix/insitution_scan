@@ -148,22 +148,37 @@ def _check_cookies(headers: dict, result: ScanResult) -> None:
 
 
 def _check_impressum(domain: str, result: ScanResult) -> None:
-    with httpx.Client(
-        timeout=8.0,
-        follow_redirects=True,
-        headers={"User-Agent": USER_AGENT},
-    ) as client:
-        impressum_html = ""
-        impressum_url = None
+    # Use the browser UA that worked for the homepage pre-fetch (some WAFs
+    # block unknown bots). Fallback to our UA.
+    cached_ua = result.metadata.get("homepage_ua_used") or USER_AGENT
+
+    def _try(client: httpx.Client, scheme: str) -> tuple[str, str] | None:
         for path in IMPRESSUM_PATHS:
             try:
-                r = client.get(f"https://{domain}{path}")
+                r = client.get(f"{scheme}://{domain}{path}")
                 if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
-                    impressum_html = r.text
-                    impressum_url = f"https://{domain}{path}"
+                    return r.text, f"{scheme}://{domain}{path}"
+            except httpx.HTTPError:
+                continue
+        return None
+
+    impressum_html = ""
+    impressum_url: str | None = None
+    for ua in (cached_ua, USER_AGENT):
+        for scheme in ("https", "http"):
+            try:
+                with httpx.Client(
+                    timeout=10.0, follow_redirects=True,
+                    headers={"User-Agent": ua}, verify=False,
+                ) as client:
+                    found = _try(client, scheme)
+                if found:
+                    impressum_html, impressum_url = found
                     break
             except httpx.HTTPError:
                 continue
+        if impressum_html:
+            break
 
     if not impressum_html:
         result.add(Finding(

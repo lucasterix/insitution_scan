@@ -46,6 +46,10 @@ from app.scanners.vpn_endpoints import check_vpn_endpoints
 from app.scanners.vuln import check_known_vulns
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
+BROWSER_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
 
 SECURITY_HEADERS = {
     "strict-transport-security": (
@@ -193,30 +197,58 @@ def check_email_auth(domain: str, result: ScanResult, step: Callable[[str, int],
             ))
 
 
+def _fetch_http(scheme: str, domain: str) -> dict:
+    """Fetch {scheme}://{domain} with progressive fallback.
+
+    Strategy:
+    1. verify=True, our UA, 10s.
+    2. verify=True, browser UA, 15s (defeat UA blocklists).
+    3. verify=False, browser UA, 15s (fall back on cert issues — record 'cert_insecure': True).
+    Returns {"status", "final_url", "headers"} on success or {"error"} + diagnostics on final failure.
+    """
+    attempts = [
+        {"verify": True, "ua": USER_AGENT, "timeout": 10.0, "cert_insecure": False},
+        {"verify": True, "ua": BROWSER_UA, "timeout": 15.0, "cert_insecure": False},
+        {"verify": False, "ua": BROWSER_UA, "timeout": 15.0, "cert_insecure": True},
+    ]
+    last_error = ""
+    for cfg in attempts:
+        try:
+            with httpx.Client(
+                timeout=cfg["timeout"], follow_redirects=True,
+                headers={"User-Agent": cfg["ua"]}, verify=cfg["verify"],
+            ) as client:
+                r = client.get(f"{scheme}://{domain}")
+            return {
+                "status": r.status_code,
+                "final_url": str(r.url),
+                "headers": {k.lower(): v for k, v in r.headers.items()},
+                "cert_insecure": cfg["cert_insecure"],
+                "ua_used": cfg["ua"],
+            }
+        except httpx.HTTPError as e:
+            last_error = f"{type(e).__name__}: {e}"
+            continue
+    return {"error": last_error}
+
+
 def check_http(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("HTTP(S) & Security Headers", 45)
-    headers_info: dict = {}
-    with httpx.Client(
-        timeout=10.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}, verify=True
-    ) as client:
-        for scheme in ("https", "http"):
-            url = f"{scheme}://{domain}"
-            try:
-                r = client.get(url)
-                headers_info[scheme] = {
-                    "status": r.status_code,
-                    "final_url": str(r.url),
-                    "headers": {k.lower(): v for k, v in r.headers.items()},
-                }
-            except httpx.HTTPError as e:
-                headers_info[scheme] = {"error": str(e)}
+    headers_info: dict = {
+        "https": _fetch_http("https", domain),
+        "http": _fetch_http("http", domain),
+    }
 
     result.metadata["http"] = headers_info
 
     https = headers_info.get("https", {})
     http = headers_info.get("http", {})
 
-    if "error" in https:
+    # If the osint pre-fetch already got the homepage (with verify=False), HTTPS is
+    # clearly reachable — don't falsely flag it even when check_http's stricter path fails.
+    pre_fetched = bool(result.metadata.get("homepage_html"))
+
+    if "error" in https and not pre_fetched:
         result.add(Finding(
             id="http.https_unreachable",
             title="HTTPS nicht erreichbar",
@@ -225,6 +257,24 @@ def check_http(domain: str, result: ScanResult, step: Callable[[str, int], None]
             category="Web",
             evidence={"error": https["error"]},
         ))
+        return
+
+    if https.get("cert_insecure"):
+        result.add(Finding(
+            id="http.tls_cert_invalid",
+            title="TLS-Zertifikat nicht verifizierbar",
+            description=(
+                "Der Server liefert ein TLS-Zertifikat das nicht gegen die Standard-Zertifizierungsstellen "
+                "verifiziert werden konnte (abgelaufen, self-signed, unvollständige Chain, oder Name-Mismatch). "
+                "Browser zeigen eine Warnung — die Website wird so kaum von Patienten genutzt."
+            ),
+            severity=Severity.HIGH,
+            category="TLS",
+            recommendation="Let's-Encrypt-Zertifikat korrekt ausstellen und vollständige Kette ausliefern (fullchain.pem).",
+        ))
+
+    if "error" in https:
+        # Pre-fetch got the content; no further HTTPS analysis possible.
         return
 
     if "error" not in http and not str(http.get("final_url", "")).startswith("https://"):
@@ -611,25 +661,33 @@ def run_osint_scan(
 
     # Pre-fetch homepage HTML (works for both domain and IP targets).
     # Also captures set-cookie list for cookie_forensics so it doesn't re-fetch.
-    for scheme in ("https", "http"):
-        try:
-            with httpx.Client(
-                timeout=10.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}, verify=False
-            ) as _hc:
-                _hp = _hc.get(f"{scheme}://{domain}")
-                if _hp.status_code == 200 and "text/html" in _hp.headers.get("content-type", "").lower():
-                    result.metadata["homepage_html"] = _hp.text[:500_000]
-                    result.metadata["homepage_headers"] = {k.lower(): v for k, v in _hp.headers.items()}
-                    # Capture all Set-Cookie headers (httpx supports get_list)
-                    raw_cookies: list[str] = []
-                    if hasattr(_hp.headers, "get_list"):
-                        raw_cookies = _hp.headers.get_list("set-cookie") or []
-                    elif _hp.headers.get("set-cookie"):
-                        raw_cookies = [_hp.headers["set-cookie"]]
-                    result.metadata["homepage_cookies_raw"] = raw_cookies
-                    break
-        except httpx.HTTPError:
-            continue
+    # Two-pass: our UA first, then browser UA (some GoDaddy/WAF setups block unknown bots).
+    _ua_attempts = [USER_AGENT, BROWSER_UA]
+    _got_home = False
+    for _ua in _ua_attempts:
+        if _got_home:
+            break
+        for scheme in ("https", "http"):
+            try:
+                with httpx.Client(
+                    timeout=15.0, follow_redirects=True,
+                    headers={"User-Agent": _ua}, verify=False,
+                ) as _hc:
+                    _hp = _hc.get(f"{scheme}://{domain}")
+                    if _hp.status_code == 200 and "text/html" in _hp.headers.get("content-type", "").lower():
+                        result.metadata["homepage_html"] = _hp.text[:500_000]
+                        result.metadata["homepage_headers"] = {k.lower(): v for k, v in _hp.headers.items()}
+                        result.metadata["homepage_ua_used"] = _ua
+                        raw_cookies: list[str] = []
+                        if hasattr(_hp.headers, "get_list"):
+                            raw_cookies = _hp.headers.get_list("set-cookie") or []
+                        elif _hp.headers.get("set-cookie"):
+                            raw_cookies = [_hp.headers["set-cookie"]]
+                        result.metadata["homepage_cookies_raw"] = raw_cookies
+                        _got_home = True
+                        break
+            except httpx.HTTPError:
+                continue
 
     # --- Domain-only modules (skip when scanning a raw IP) ---
     if not is_ip:
