@@ -63,23 +63,32 @@
     .kpi-card .lbl { font-size: 8pt; text-transform: uppercase; color: #64748b; margin-top: 3pt; letter-spacing: 0.4pt; }
     .sev-critical .num { color: #dc2626; } .sev-high .num { color: #ea580c; } .sev-medium .num { color: #d97706; } .sev-low .num { color: #0284c7; } .sev-info .num { color: #64748b; }
 
-    .kbv-req { padding: 6pt 8pt; border-radius: 4pt; margin-bottom: 4pt; font-size: 9pt; border: 1px solid; page-break-inside: avoid; }
-    .kbv-req.ok { background: #ecfdf5; border-color: #a7f3d0; }
-    .kbv-req.fail { background: #fef2f2; border-color: #fecaca; }
-    .kbv-req .code { font-weight: bold; }
+    /* KBV requirements — clean table row style instead of colored boxes */
+    .kbv-section { margin-bottom: 14pt; }
+    .kbv-item { padding: 4pt 0; border-bottom: 1px solid #f1f5f9; font-size: 9pt; page-break-inside: avoid; }
+    .kbv-item:last-child { border-bottom: none; }
+    .kbv-status { display: inline-block; width: 12pt; text-align: center; margin-right: 4pt; }
+    .kbv-status.ok { color: #059669; }
+    .kbv-status.fail { color: #dc2626; }
+    .kbv-code { font-weight: 600; color: #334155; }
+    .kbv-title { color: #0f172a; }
+    .kbv-detail { color: #64748b; font-size: 8.5pt; margin-left: 16pt; margin-top: 1pt; }
 
-    .finding { border: 1px solid #e2e8f0; border-left-width: 4pt; border-radius: 4pt; padding: 8pt 10pt; margin-bottom: 6pt; page-break-inside: avoid; }
-    .finding.critical { border-left-color: #dc2626; background: #fef2f2; }
-    .finding.high { border-left-color: #ea580c; background: #fff7ed; }
-    .finding.medium { border-left-color: #d97706; background: #fffbeb; }
-    .finding.low { border-left-color: #0284c7; background: #f0f9ff; }
-    .finding.info { border-left-color: #94a3b8; background: #f8fafc; }
-    .finding .head { font-weight: bold; font-size: 10pt; color: #0f172a; margin-bottom: 2pt; }
-    .finding .cat { font-size: 7pt; text-transform: uppercase; color: #64748b; letter-spacing: 0.3pt; }
-    .finding .desc { font-size: 9pt; color: #334155; margin-top: 4pt; white-space: pre-line; }
-    .finding .rec { font-size: 9pt; background: rgba(255,255,255,0.7); border: 1px solid #a7f3d0; padding: 5pt 8pt; border-radius: 3pt; margin-top: 6pt; }
-    .finding .kbv { font-size: 8pt; color: #64748b; margin-top: 4pt; font-style: italic; }
-    .finding .evidence { font-size: 7.5pt; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 4pt 6pt; border-radius: 3pt; margin-top: 4pt; font-family: "DejaVu Sans Mono", monospace; word-break: break-all; }
+    /* Findings — professional report style, no colored boxes */
+    .finding-section { margin-bottom: 12pt; page-break-inside: avoid; }
+    .finding-header { display: flex; align-items: baseline; gap: 6pt; margin-bottom: 3pt; }
+    .finding-number { font-size: 9pt; color: #94a3b8; font-weight: 600; min-width: 28pt; }
+    .finding-title { font-size: 10pt; font-weight: 600; color: #0f172a; }
+    .finding-sev { font-size: 7pt; padding: 1pt 4pt; border-radius: 2pt; color: white; text-transform: uppercase; font-weight: 700; letter-spacing: 0.3pt; vertical-align: middle; }
+    .finding-sev.critical { background: #dc2626; } .finding-sev.high { background: #ea580c; }
+    .finding-sev.medium { background: #d97706; } .finding-sev.low { background: #0284c7; }
+    .finding-sev.info { background: #94a3b8; }
+    .finding-category { font-size: 8pt; color: #64748b; margin-left: 34pt; margin-bottom: 3pt; }
+    .finding-body { font-size: 9pt; color: #334155; line-height: 1.55; margin-left: 34pt; white-space: pre-line; }
+    .finding-recommendation { font-size: 9pt; color: #065f46; margin: 6pt 0 0 34pt; padding: 5pt 0 5pt 10pt; border-left: 2pt solid #a7f3d0; }
+    .finding-legal { font-size: 8pt; color: #64748b; font-style: italic; margin: 4pt 0 0 34pt; }
+    .finding-evidence { font-size: 7.5pt; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; padding: 4pt 6pt; margin: 6pt 0 0 34pt; font-family: "DejaVu Sans Mono", monospace; word-break: break-all; }
+    .finding-divider { border: none; border-top: 1px solid #f1f5f9; margin: 8pt 0; }
 
     .legal-box { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6pt; padding: 10pt; margin: 12pt 0; font-size: 9pt; }
     .legal-box strong { color: #92400e; }
@@ -374,13 +383,18 @@ Sicherheitsgewinn bei geringstem Aufwand verspricht:</p>
 {% if kbv %}
 <p>{{ kbv.totals.ok }}/{{ kbv.totals.total }} automatisiert prüfbare Anforderungen erfüllt ({{ kbv.totals.pct }}%).</p>
 {% for a in kbv.anlagen %}
-<h3>{{ a.title }} — {{ a.ok_count }} ok, {{ a.fail_count }} offen</h3>
+<h3>{{ a.title }}</h3>
+<p style="font-size:9pt;color:#475569;margin-bottom:4pt;">{{ a.ok_count }} von {{ a.ok_count + a.fail_count }} Anforderungen erfüllt.</p>
+<div class="kbv-section">
 {% for r in a.requirements %}
-<div class="kbv-req {{ r.status }}">
-  <span class="code">{{ '&#10003;' if r.status == 'ok' else '&#10007;' }} {{ r.code }}</span> — {{ r.title }}
-  {% if r.status == 'fail' %}<div style="color:#64748b;margin-top:2pt;font-size:8.5pt;">{{ r.description }}</div>{% endif %}
+<div class="kbv-item">
+  <span class="kbv-status {{ r.status }}">{{ '✓' if r.status == 'ok' else '✗' }}</span>
+  <span class="kbv-code">{{ r.code }}</span> —
+  <span class="kbv-title">{{ r.title }}</span>
+  {% if r.status == 'fail' %}<div class="kbv-detail">{{ r.description }}</div>{% endif %}
 </div>
 {% endfor %}
+</div>
 {% endfor %}
 {% endif %}
 
@@ -424,21 +438,39 @@ Sicherheitsgewinn bei geringstem Aufwand verspricht:</p>
   des Befundes zu gewährleisten.
 </p>
 
-{% for sev_key, sev_label in [('critical','Kritische Befunde'),('high','Hohe Befunde'),('medium','Mittlere Befunde'),('low','Niedrige Befunde'),('info','Informationen')] %}
+{% set finding_counter = namespace(n=0) %}
+{% for sev_key, sev_label, sev_intro in [
+  ('critical','Kritische Befunde', 'Die folgenden Befunde stellen eine unmittelbare Gefährdung dar und erfordern sofortige Maßnahmen.'),
+  ('high','Befunde mit hoher Priorität', 'Diese Befunde stellen ein erhebliches Risiko dar und sollten innerhalb von 30 Tagen behoben werden.'),
+  ('medium','Befunde mit mittlerer Priorität', 'Diese Befunde betreffen die Härtung der Infrastruktur und sollten im nächsten Wartungsfenster adressiert werden.'),
+  ('low','Befunde mit niedriger Priorität', 'Optimierungspotenziale, die die Sicherheitslage verbessern, aber kein akutes Risiko darstellen.'),
+  ('info','Informative Befunde', 'Feststellungen ohne direktes Sicherheitsrisiko, die zur Dokumentation und Nachverfolgung aufgenommen werden.'),
+] %}
   {% set sev_findings = [] %}
   {% for f in scan.result.findings %}{% if f.severity == sev_key %}{% set _ = sev_findings.append(f) %}{% endif %}{% endfor %}
   {% if sev_findings %}
   <h3>{{ sev_label }} ({{ sev_findings | length }})</h3>
+  <p style="font-size:9pt;color:#475569;margin-bottom:8pt;">{{ sev_intro }}</p>
   {% for f in sev_findings %}
-  <div class="finding {{ f.severity }}">
-    <div class="cat">{{ f.category }}</div>
-    <div class="head"><span class="sev-badge {{ f.severity }}">{{ f.severity }}</span> {{ f.title }}</div>
-    <div class="desc">{{ f.description }}</div>
-    {% if f.recommendation %}<div class="rec"><strong>Empfehlung:</strong> {{ f.recommendation }}</div>{% endif %}
-    {% if f.kbv_ref %}<div class="kbv">{{ f.kbv_ref }}</div>{% endif %}
-    {% if f.evidence and f.severity in ['critical', 'high'] %}
-    <div class="evidence"><strong>Beleg:</strong> {{ f.evidence | tojson(indent=0) | truncate(600) }}</div>
+  {% set finding_counter.n = finding_counter.n + 1 %}
+  <div class="finding-section">
+    <div class="finding-header">
+      <span class="finding-number">{{ finding_counter.n }}.</span>
+      <span class="finding-sev {{ f.severity }}">{{ f.severity }}</span>
+      <span class="finding-title">{{ f.title }}</span>
+    </div>
+    <div class="finding-category">Prüfbereich: {{ f.category }}</div>
+    <div class="finding-body">{{ f.description }}</div>
+    {% if f.recommendation %}
+    <div class="finding-recommendation"><strong>Handlungsempfehlung:</strong> {{ f.recommendation }}</div>
     {% endif %}
+    {% if f.kbv_ref %}
+    <div class="finding-legal">{{ f.kbv_ref }}</div>
+    {% endif %}
+    {% if f.evidence and f.severity in ['critical', 'high'] %}
+    <div class="finding-evidence">Technischer Beleg: {{ f.evidence | tojson(indent=0) | truncate(500) }}</div>
+    {% endif %}
+    <hr class="finding-divider">
   </div>
   {% endfor %}
   {% endif %}
