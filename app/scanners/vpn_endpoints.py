@@ -56,6 +56,103 @@ VPN_PROBES: list[tuple[str, tuple[str, ...], str, str]] = [
 ]
 
 
+def _test_vpn_no_auth(client: httpx.Client, domain: str, hit: dict) -> dict | None:
+    """Test if a detected VPN gateway accepts login WITHOUT credentials.
+
+    Sends empty/blank credentials to known auth endpoints for each vendor.
+    If the response indicates success (redirect to portal, 200 with session),
+    it's a CRITICAL finding — the VPN has no password.
+
+    We do NOT try actual passwords. Only: empty username + empty password.
+    """
+    vendor = hit.get("vendor", "").lower()
+    path = hit.get("path", "")
+
+    # Vendor-specific empty-auth tests
+    tests: list[tuple[str, str, dict | str | None, str]] = []
+
+    if "fortinet" in vendor or "fortigate" in vendor:
+        tests.append((
+            "POST", f"https://{domain}/remote/logincheck",
+            {"ajax": "1", "username": "", "credential": ""},
+            "redir"  # Fortinet returns 'redir=' on successful auth
+        ))
+    if "palo alto" in vendor or "globalprotect" in vendor:
+        tests.append((
+            "POST", f"https://{domain}/global-protect/login.esp",
+            "user=&passwd=&inputStr=&clientVer=4100&clientos=Windows",
+            "portal"
+        ))
+    if "pulse" in vendor or "ivanti" in vendor:
+        tests.append((
+            "POST", f"https://{domain}/dana-na/auth/url_default/login.cgi",
+            {"username": "", "password": "", "realm": "Users"},
+            "welcome.cgi"
+        ))
+    if "f5" in vendor or "big-ip" in vendor:
+        tests.append((
+            "POST", f"https://{domain}/my.policy",
+            {"username": "", "password": ""},
+            "webtop"
+        ))
+    if "cisco" in vendor or "anyconnect" in vendor:
+        tests.append((
+            "POST", f"https://{domain}/+webvpn+/index.html",
+            {"username": "", "password": ""},
+            "webvpn"
+        ))
+    if "sonicwall" in vendor:
+        tests.append((
+            "POST", f"https://{domain}/cgi-bin/welcome",
+            {"username": "", "password": "", "Login": "Login"},
+            "portal"
+        ))
+    if "citrix" in vendor or "netscaler" in vendor:
+        tests.append((
+            "POST", f"https://{domain}/cgi/login",
+            {"login=&passwd="},
+            "cgi/setclient"
+        ))
+
+    for method, url, data, success_indicator in tests:
+        try:
+            if method == "POST":
+                if isinstance(data, dict):
+                    r = client.post(url, data=data)
+                else:
+                    r = client.post(url, content=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
+            else:
+                r = client.get(url)
+        except httpx.HTTPError:
+            continue
+
+        body = r.text[:4096].lower()
+        location = r.headers.get("location", "").lower()
+        cookies_set = bool(r.headers.get("set-cookie"))
+
+        # Success indicators: redirect to portal, session cookie, success keyword in body
+        is_success = (
+            (r.status_code in (302, 303) and success_indicator in location) or
+            (r.status_code == 200 and success_indicator in body and cookies_set) or
+            (r.status_code == 200 and "welcome" in body and "error" not in body and "invalid" not in body and "failed" not in body)
+        )
+
+        if is_success:
+            indicator_detail = f"HTTP {r.status_code}"
+            if r.status_code in (302, 303):
+                indicator_detail += f" Redirect → {location[:100]}"
+            elif cookies_set:
+                indicator_detail += " + Session-Cookie gesetzt"
+            return {
+                "vendor": hit.get("vendor", ""),
+                "path": url.replace(f"https://{domain}", ""),
+                "status": r.status_code,
+                "indicator": indicator_detail,
+            }
+
+    return None
+
+
 def _probe(client: httpx.Client, domain: str, entry: tuple) -> dict | None:
     path, hints, vendor, cves = entry
     try:
@@ -119,6 +216,20 @@ def check_vpn_endpoints(domain: str, result: ScanResult, step: Callable[[str, in
         seen_vendors.add(h["vendor"])
         unique_hits.append(h)
 
+    # --- Test for unauthenticated VPN access (no password) ---
+    # For each detected VPN, try to access WITHOUT credentials.
+    # We send empty credentials to known auth endpoints and check if
+    # the response indicates success (redirect to portal, session cookie set).
+    vpn_no_auth: list[dict] = []
+    with httpx.Client(
+        timeout=TIMEOUT, follow_redirects=False,
+        headers={"User-Agent": USER_AGENT},
+    ) as auth_client:
+        for h in unique_hits:
+            no_auth = _test_vpn_no_auth(auth_client, domain, h)
+            if no_auth:
+                vpn_no_auth.append(no_auth)
+
     result.metadata["vpn_endpoints"] = [
         {"vendor": h["vendor"], "path": h["path"], "status": h["status"], "cves": h["cves"]}
         for h in unique_hits
@@ -152,4 +263,28 @@ def check_vpn_endpoints(domain: str, result: ScanResult, step: Callable[[str, in
                 "4. SAML-Logs auf Brute-Force überwachen."
             ),
             kbv_ref="KBV IT-Sicherheit §390 SGB V — Anlage 3 (Remote-Zugänge)",
+        ))
+
+    for na in vpn_no_auth:
+        result.add(Finding(
+            id=f"vpn.no_auth.{na['vendor'].lower().replace(' ', '_').replace('/', '_')}",
+            title=f"VPN-Gateway {na['vendor']}: Login OHNE Passwort möglich!",
+            description=(
+                f"Der {na['vendor']}-VPN-Gateway auf {domain} akzeptiert eine Anmeldung "
+                f"ohne Passwort oder mit leerem Passwort.\n\n"
+                f"Test-Pfad: {na['path']}\n"
+                f"Response: HTTP {na['status']} — {na['indicator']}\n\n"
+                "Das bedeutet: JEDER aus dem Internet kann sich ohne Credentials in das "
+                "interne Netzwerk der Praxis tunneln. Zugriff auf alle internen Systeme: "
+                "PVS, Drucker, Dateifreigaben, TI-Konnektor, Patientendaten."
+            ),
+            severity=Severity.CRITICAL,
+            category="VPN / Remote Access",
+            evidence=na,
+            recommendation=(
+                "SOFORT: VPN-Gateway vom Netz nehmen oder Passwort setzen. "
+                "Anschließend: Prüfen ob bereits unautorisierte Zugriffe stattgefunden haben "
+                "(VPN-Logs, Firewall-Logs, AD-Anmeldeprotokolle)."
+            ),
+            kbv_ref="KBV Anlage 3 (Remote-Zugänge), DSGVO Art. 32+33 (Meldepflicht)",
         ))

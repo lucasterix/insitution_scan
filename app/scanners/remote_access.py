@@ -33,6 +33,22 @@ TIMEOUT = 5.0
 
 # --- Web-based remote access tools ---
 # (path, content_hints, tool_name, severity, description, known_cves)
+import re
+
+# Version extraction patterns for remote access tools
+VERSION_PATTERNS: dict[str, list[re.Pattern]] = {
+    "Apache Guacamole": [re.compile(r"guacamole[/-]([\d.]+)", re.IGNORECASE)],
+    "ConnectWise ScreenConnect": [
+        re.compile(r"ScreenConnect[/ ]([\d.]+)", re.IGNORECASE),
+        re.compile(r"version[\"':= ]+([\d.]+)", re.IGNORECASE),
+    ],
+    "Citrix StoreFront": [re.compile(r"Citrix[/ ]([\d.]+)", re.IGNORECASE)],
+    "VMware Horizon": [re.compile(r"Horizon[/ ]([\d.]+)", re.IGNORECASE)],
+    "VMware vSphere Client": [re.compile(r"vSphere[/ ]([\d.]+)", re.IGNORECASE)],
+    "MeshCentral": [re.compile(r"MeshCentral[/ v]([\d.]+)", re.IGNORECASE)],
+    "Microsoft RD Web Access": [re.compile(r"RDWeb[/ ]([\d.]+)", re.IGNORECASE)],
+}
+
 REMOTE_ACCESS_PATHS: list[tuple[str, tuple[str, ...], str, Severity, str, str]] = [
     ("/guacamole/", ("guacamole", "apache guacamole"), "Apache Guacamole",
      Severity.HIGH, "Web-basierter Remote-Desktop-Gateway — erlaubt RDP/SSH/VNC über den Browser.",
@@ -149,18 +165,45 @@ def check_remote_access(domain: str, result: ScanResult, step: Callable[[str, in
                 continue
 
             web_hits.append({"path": path, "tool": tool, "status": r.status_code,
-                             "sev": sev, "desc": desc, "cves": cves})
+                             "sev": sev, "desc": desc, "cves": cves,
+                             "body": body, "server": r.headers.get("server", "")})
 
-    # Deduplicate by tool name
+    # Deduplicate by tool name + extract version
     seen_tools: set[str] = set()
     for hit in web_hits:
         if hit["tool"] in seen_tools:
             continue
         seen_tools.add(hit["tool"])
 
+        # --- Version extraction from response body + headers ---
+        detected_version = None
+        body_for_version = hit.get("body", "")
+        if hit["tool"] in VERSION_PATTERNS:
+            for pat in VERSION_PATTERNS[hit["tool"]]:
+                m = pat.search(body_for_version)
+                if m:
+                    detected_version = m.group(1)
+                    break
+        # Also check Server/X-Powered-By headers
+        if not detected_version and hit.get("server"):
+            for pat_list in VERSION_PATTERNS.values():
+                for pat in pat_list:
+                    m = pat.search(hit["server"])
+                    if m:
+                        detected_version = m.group(1)
+                        break
+
+        if detected_version:
+            hit["version"] = detected_version
+            # Feed version into tech metadata for CVE scanner
+            tech_key = f"remote.{hit['tool'].lower().replace(' ', '_')}"
+            result.metadata.setdefault("tech", {})[tech_key] = detected_version
+
+        version_text = f" Version {detected_version}" if detected_version else ""
+
         result.add(Finding(
             id=f"remote.web.{hit['tool'].lower().replace(' ', '_')}",
-            title=f"Fernwartungstool öffentlich erreichbar: {hit['tool']}",
+            title=f"Fernwartungstool öffentlich erreichbar: {hit['tool']}{version_text}",
             description=(
                 f"{hit['desc']}\n\n"
                 f"Pfad: {hit['path']} (HTTP {hit['status']})\n"

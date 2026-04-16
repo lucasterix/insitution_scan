@@ -36,6 +36,7 @@ from app.compliance.finding_enrichment import enrich_findings
 from app.scanners.form_security import check_form_security
 from app.scanners.default_access import check_default_access
 from app.scanners.nmap_scan import check_nmap
+from app.scanners.default_creds import check_default_creds
 from app.scanners.os_detection import check_os_and_eol
 from app.scanners.remote_access import check_remote_access
 from app.scanners.server_analysis import check_server
@@ -643,6 +644,7 @@ def run_osint_scan(
         check_cms(domain, result, step)
         check_form_security(domain, result, step)
 
+    check_default_creds(domain, result, step)
     check_tech_fingerprint(domain, result, step)
 
     if not is_ip:
