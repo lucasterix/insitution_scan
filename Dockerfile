@@ -19,10 +19,24 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+# Install nuclei binary (projectdiscovery.io) for active vulnerability scanning.
+# Uses the GitHub Releases API to always pull the latest stable version.
+RUN NUCLEI_URL=$(curl -s https://api.github.com/repos/projectdiscovery/nuclei/releases/latest | \
+        python3 -c "import sys,json; [print(a['browser_download_url']) for a in json.load(sys.stdin).get('assets',[]) if 'linux_amd64.zip' in a['name']]" | head -1) && \
+    if [ -n "$NUCLEI_URL" ]; then \
+        curl -sLo /tmp/nuclei.zip "$NUCLEI_URL" && \
+        python3 -c "import zipfile; zipfile.ZipFile('/tmp/nuclei.zip').extract('nuclei', '/usr/local/bin')" && \
+        chmod +x /usr/local/bin/nuclei && \
+        rm /tmp/nuclei.zip; \
+    fi
+
 COPY app ./app
 
 RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
+
+# Pre-download nuclei templates so the first scan doesn't need to wait.
 USER appuser
+RUN nuclei -update-templates -disable-update-check 2>/dev/null || true
 
 EXPOSE 8000
 
