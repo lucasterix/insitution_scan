@@ -68,7 +68,11 @@ def deep_scan_subdomains(domain: str, result: ScanResult, step: Callable[[str, i
     if not alive_map:
         return
 
-    subs = [s for s in alive_map.keys() if s != domain][:MAX_SUBS]
+    # Skip apex + www alias (same host as apex; findings would be double-reported).
+    subs = [
+        s for s in alive_map.keys()
+        if s != domain and s != f"www.{domain}"
+    ][:MAX_SUBS]
     if not subs:
         return
 

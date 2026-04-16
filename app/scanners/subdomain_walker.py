@@ -163,7 +163,12 @@ def walk_subdomains(domain: str, result: ScanResult, step: Callable[[str, int], 
     if not subs:
         return
 
-    unique = [s for s in dict.fromkeys(subs) if "*" not in s and s != domain]
+    # Exclude the apex and the www. alias — www is a convention for the same host
+    # (same IPs, same server, same headers as apex) and everything would be double-reported.
+    unique = [
+        s for s in dict.fromkeys(subs)
+        if "*" not in s and s != domain and s != f"www.{domain}"
+    ]
     if not unique:
         return
 

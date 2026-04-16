@@ -171,7 +171,11 @@ def check_remote_access(domain: str, result: ScanResult, step: Callable[[str, in
 
     # Probe main domain for ALL paths + alive subdomains for CRITICAL/HIGH paths.
     targets: list[tuple[str, tuple]] = [(domain, spec) for spec in REMOTE_ACCESS_PATHS]
-    alive_subs = list((result.metadata.get("subdomain_walk") or {}).get("results") or {})
+    # Skip apex + www alias — same host, redundant probes.
+    alive_subs = [
+        s for s in (result.metadata.get("subdomain_walk") or {}).get("results") or {}
+        if s != domain and s != f"www.{domain}"
+    ]
     high_value_paths = [s for s in REMOTE_ACCESS_PATHS if s[3] in (Severity.CRITICAL, Severity.HIGH)]
     for sub in alive_subs[:10]:
         for spec in high_value_paths:
