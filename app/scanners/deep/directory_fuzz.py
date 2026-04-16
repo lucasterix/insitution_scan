@@ -189,6 +189,10 @@ def check_directory_fuzz(domain: str, result: ScanResult, step: Callable[[str, i
         evidence={"hits": [{"path": h["path"], "status": h["status"]} for h in hits]},
     ))
 
+    # VCS paths (.git/.svn/.hg): severity depends on HTTP status.
+    # 200 = actually dumpable, 401 = auth-gated (still risky), 403 = blocked (good).
+    VCS_KEYS = {".git", ".svn", ".hg"}
+
     # Emit a detailed finding for each known-interesting path.
     for h in hits:
         key = h["path"].strip("/").lower()
@@ -197,6 +201,39 @@ def check_directory_fuzz(domain: str, result: ScanResult, step: Callable[[str, i
             continue
         sev, explanation, recommendation = details
         status_text = {200: "öffentlich erreichbar", 401: "existiert (Auth-Challenge)", 403: "existiert (Zugriff verweigert)"}.get(h["status"], f"HTTP {h['status']}")
+
+        # Adjust severity + description for VCS paths blocked by server config.
+        if key in VCS_KEYS and h["status"] == 403:
+            sev = Severity.LOW
+            explanation = (
+                f"Der Webserver gibt beim Aufruf von /{key}/ ein HTTP 403 zurück — d.h. "
+                "das Verzeichnis existiert auf der Platte, wird aber vom Webserver "
+                "geblockt. Ein Angreifer kann den Inhalt NICHT herunterladen. "
+                "Das ist die korrekte Konfiguration.\n\n"
+                "Als letzte Härtung könnte man zusätzlich zu 403 auch Dateien wie "
+                f"/{key}/HEAD, /{key}/config, /{key}/logs/HEAD manuell testen — "
+                "wenn alle 403/404 liefern, ist die Absicherung dicht. "
+                "Wir haben bereits während des Scans geprüft ob einzelne Dateien "
+                "durchkommen — wäre das der Fall, hätten wir ein CRITICAL Finding ausgegeben."
+            )
+            recommendation = (
+                "Keine Aktion nötig. Zur Kontrolle: prüfen ob auch /.git/HEAD "
+                "und /.git/config 403 liefern."
+            )
+        elif key in VCS_KEYS and h["status"] == 401:
+            sev = Severity.MEDIUM  # auth-gated, but passwords can be brute-forced
+            explanation = (
+                f"Der Webserver gibt beim Aufruf von /{key}/ ein HTTP 401 zurück — d.h. "
+                "der Inhalt ist hinter einer HTTP-Auth-Abfrage versteckt. Das ist besser "
+                "als offen zugänglich (200), aber ein Angreifer mit schwachen Credentials "
+                f"(Basic-Auth wird oft ohne Rate-Limit gebruteforced) kommt potenziell durch. "
+                "Sicherer: Zugriff per Webserver-Config komplett blocken (403/404)."
+            )
+            recommendation = (
+                f"Zugriff auf /{key}/ in der Webserver-Config komplett unterbinden "
+                f"(nginx: 'location ~ /\\.{key.lstrip('.')} {{ deny all; }}')."
+            )
+
         result.add(Finding(
             id=f"deep.dir_fuzz.{key}",
             title=f"{h['path']} — {status_text}",
