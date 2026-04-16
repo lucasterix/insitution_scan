@@ -179,7 +179,9 @@ def _check_user_enum_wp_json(client: httpx.Client, domain: str, result: ScanResu
                 "gezielt Brute-Force bzw. Credential-Stuffing ausführen. Für MVZ-Sites "
                 "der häufigste Vorstufen-Exploit vor einem Komplettübernahme-Angriff."
             ),
-            severity=Severity.HIGH,
+            # Usernames alone don't compromise anything — they're input for brute-force
+            # that still needs to succeed against rate-limiting + password strength.
+            severity=Severity.MEDIUM,
             category="WordPress",
             evidence={"usernames": usernames[:20]},
             recommendation=(

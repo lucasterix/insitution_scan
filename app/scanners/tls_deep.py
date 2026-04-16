@@ -75,13 +75,20 @@ def check_tls_deep(domain: str, result: ScanResult, step: Callable[[str, int], N
                 "werden, wenn der Server-Schlüssel irgendwann kompromittiert wird. "
                 "PFS-Cipher (ECDHE/DHE) erzeugen pro Session einen neuen Schlüssel."
             ),
-            severity=Severity.HIGH,
+            severity=Severity.LOW,
             category="TLS",
             evidence=info,
             recommendation="Cipher-Suite auf ECDHE-basierte Algorithmen umstellen (nginx: ssl_ciphers 'ECDHE-...').",
         ))
 
     if is_weak:
+        # NULL/EXPORT/RC4/DES = practically broken → HIGH.
+        # 3DES = theoretical (Sweet32 needs 2^32 chosen plaintexts) → MEDIUM.
+        cipher_upper = cipher_name.upper()
+        if any(s in cipher_upper for s in ("NULL", "EXPORT", "RC4", "_DES_")) and "3DES" not in cipher_upper:
+            sev = Severity.HIGH
+        else:
+            sev = Severity.MEDIUM
         result.add(Finding(
             id="tls.weak_cipher",
             title=f"Schwacher Cipher: {cipher_name}",
@@ -90,7 +97,7 @@ def check_tls_deep(domain: str, result: ScanResult, step: Callable[[str, int], N
                 "RC4, DES, 3DES, NULL und EXPORT-Cipher können mit moderater Rechenleistung "
                 "gebrochen werden."
             ),
-            severity=Severity.HIGH,
+            severity=sev,
             category="TLS",
             evidence=info,
             recommendation="Schwache Cipher deaktivieren und nur AES-128/256-GCM + ChaCha20 zulassen.",
@@ -112,11 +119,18 @@ def check_tls_deep(domain: str, result: ScanResult, step: Callable[[str, int], N
         ))
 
     if bits and bits < 128:
+        # <64 bits = broken in hours. 64-112 = days-weeks. 112-127 = theoretical.
+        if bits < 64:
+            sev = Severity.HIGH
+        elif bits < 112:
+            sev = Severity.MEDIUM
+        else:
+            sev = Severity.LOW
         result.add(Finding(
             id="tls.low_bit_cipher",
             title=f"Cipher mit nur {bits} Bit Schlüssellänge",
             description=f"Der Cipher {cipher_name} verwendet nur {bits} Bit — unter 128 Bit gilt als unsicher.",
-            severity=Severity.HIGH,
+            severity=sev,
             category="TLS",
             evidence=info,
         ))

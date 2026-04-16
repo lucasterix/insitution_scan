@@ -25,9 +25,9 @@ MAX_SUBS = 10
 TIMEOUT = 6.0
 
 REQUIRED_HEADERS = {
-    "strict-transport-security": ("HSTS fehlt", Severity.MEDIUM),
-    "x-content-type-options": ("X-Content-Type-Options fehlt", Severity.LOW),
-    "x-frame-options": ("X-Frame-Options fehlt (oder CSP frame-ancestors)", Severity.LOW),
+    "strict-transport-security": ("HSTS fehlt", Severity.LOW),
+    "x-content-type-options": ("X-Content-Type-Options fehlt", Severity.INFO),
+    "x-frame-options": ("X-Frame-Options fehlt (oder CSP frame-ancestors)", Severity.INFO),
 }
 
 
@@ -103,7 +103,8 @@ def deep_scan_subdomains(domain: str, result: ScanResult, step: Callable[[str, i
                     "erben die Header der Haupt-Domain nicht automatisch und müssen einzeln "
                     "konfiguriert werden."
                 ),
-                severity=Severity.MEDIUM,
+                # Defense-in-depth; doesn't enable direct compromise.
+                severity=Severity.LOW,
                 category="Subdomain Exposure",
                 evidence={"subdomain": sub, "missing": missing, "status": info["status"]},
                 recommendation=f"Security-Header für {sub} in der nginx/Apache-Site-Config ergänzen.",

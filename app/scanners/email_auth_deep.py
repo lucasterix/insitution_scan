@@ -73,7 +73,9 @@ def _check_dkim(domain: str, result: ScanResult) -> None:
                 "Entweder nutzt der Absender einen seltenen Selektor, oder DKIM ist gar "
                 "nicht aktiv — ohne DKIM wirkt DMARC nicht zuverlässig."
             ),
-            severity=Severity.HIGH,
+            # Signal that E-Mail authentication isn't complete. DMARC + SPF still
+            # cover the core spoofing cases, so MEDIUM is honest here.
+            severity=Severity.MEDIUM,
             category="E-Mail",
             recommendation=(
                 "DKIM in M365/Google Workspace/dem Mail-Provider aktivieren, "
@@ -112,7 +114,7 @@ def _check_mta_sts(domain: str, result: ScanResult) -> None:
                 "MTA-STS zwingt sendende Mailserver zu TLS — ohne diesen Standard "
                 "können E-Mails im Transit weiterhin unverschlüsselt ankommen (STARTTLS-Downgrade)."
             ),
-            severity=Severity.MEDIUM,
+            severity=Severity.LOW,
             category="E-Mail",
             recommendation=(
                 "DNS-TXT _mta-sts.{domain} mit v=STSv1 + id=... setzen und unter "
@@ -126,7 +128,7 @@ def _check_mta_sts(domain: str, result: ScanResult) -> None:
             description=(
                 "Der _mta-sts TXT-Record verweist auf eine Policy, die HTTP(S)-Datei ist aber nicht erreichbar."
             ),
-            severity=Severity.MEDIUM,
+            severity=Severity.LOW,
             category="E-Mail",
             recommendation="Policy-Datei unter https://mta-sts.<domain>/.well-known/mta-sts.txt hinterlegen.",
         ))

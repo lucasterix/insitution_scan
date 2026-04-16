@@ -18,15 +18,15 @@ USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
 # --- Third-party trackers -----------------------------------------------
 
 TRACKER_PATTERNS: list[tuple[re.Pattern, str, Severity, str]] = [
-    (re.compile(r"google-analytics\.com/(?:ga|analytics)\.js", re.IGNORECASE), "Google Analytics (Universal)", Severity.HIGH, "Google Analytics ohne explizite Einwilligung ist für MVZ eine DSGVO-Verletzung (Schrems II + BfDI-Leitlinie)."),
-    (re.compile(r"googletagmanager\.com/(?:gtag|gtm)", re.IGNORECASE), "Google Tag Manager", Severity.HIGH, "GTM lädt typischerweise GA/GAds — ohne Consent DSGVO-relevant."),
-    (re.compile(r"connect\.facebook\.net.*?/fbevents\.js", re.IGNORECASE), "Meta/Facebook Pixel", Severity.HIGH, "Meta Pixel überträgt Besucherdaten in die USA — ohne Consent DSGVO-Verstoß."),
-    (re.compile(r"fbq\s*\(\s*['\"]init", re.IGNORECASE), "Meta/Facebook Pixel (fbq)", Severity.HIGH, "Meta Pixel aktiv auf der Seite."),
-    (re.compile(r"googleadservices\.com", re.IGNORECASE), "Google Ads Conversion", Severity.HIGH, "Google Ads Tracking ohne Consent."),
+    (re.compile(r"google-analytics\.com/(?:ga|analytics)\.js", re.IGNORECASE), "Google Analytics (Universal)", Severity.MEDIUM, "Google Analytics ohne explizite Einwilligung ist für MVZ eine DSGVO-Verletzung (Schrems II + BfDI-Leitlinie)."),
+    (re.compile(r"googletagmanager\.com/(?:gtag|gtm)", re.IGNORECASE), "Google Tag Manager", Severity.MEDIUM, "GTM lädt typischerweise GA/GAds — ohne Consent DSGVO-relevant."),
+    (re.compile(r"connect\.facebook\.net.*?/fbevents\.js", re.IGNORECASE), "Meta/Facebook Pixel", Severity.MEDIUM, "Meta Pixel überträgt Besucherdaten in die USA — ohne Consent DSGVO-Verstoß."),
+    (re.compile(r"fbq\s*\(\s*['\"]init", re.IGNORECASE), "Meta/Facebook Pixel (fbq)", Severity.MEDIUM, "Meta Pixel aktiv auf der Seite."),
+    (re.compile(r"googleadservices\.com", re.IGNORECASE), "Google Ads Conversion", Severity.MEDIUM, "Google Ads Tracking ohne Consent."),
     (re.compile(r"googlesyndication\.com", re.IGNORECASE), "Google AdSense", Severity.MEDIUM, "Google Werbebausteine ohne Consent."),
-    (re.compile(r"static\.hotjar\.com/c/hotjar", re.IGNORECASE), "Hotjar", Severity.HIGH, "Hotjar Session Recording — DSGVO-relevant."),
-    (re.compile(r"clarity\.ms/tag", re.IGNORECASE), "Microsoft Clarity", Severity.HIGH, "Clarity Session Replay — DSGVO-relevant."),
-    (re.compile(r"analytics\.tiktok\.com", re.IGNORECASE), "TikTok Pixel", Severity.HIGH, "TikTok Tracking — DSGVO + CN-Datenübertragung."),
+    (re.compile(r"static\.hotjar\.com/c/hotjar", re.IGNORECASE), "Hotjar", Severity.MEDIUM, "Hotjar Session Recording — DSGVO-relevant."),
+    (re.compile(r"clarity\.ms/tag", re.IGNORECASE), "Microsoft Clarity", Severity.MEDIUM, "Clarity Session Replay — DSGVO-relevant."),
+    (re.compile(r"analytics\.tiktok\.com", re.IGNORECASE), "TikTok Pixel", Severity.MEDIUM, "TikTok Tracking — DSGVO + CN-Datenübertragung."),
     (re.compile(r"px\.ads\.linkedin\.com", re.IGNORECASE), "LinkedIn Insight Tag", Severity.MEDIUM, "LinkedIn Tracking ohne Consent."),
     (re.compile(r"snap\.licdn\.com", re.IGNORECASE), "LinkedIn Insight Tag", Severity.MEDIUM, "LinkedIn Tracking."),
     (re.compile(r"twitter\.com/i/adsct", re.IGNORECASE), "X/Twitter Pixel", Severity.MEDIUM, "X/Twitter Conversion Tracking."),
@@ -189,7 +189,7 @@ def _check_impressum(domain: str, result: ScanResult) -> None:
                 "erreichbar. §5 DDG (früher TMG) verpflichtet jede gewerbliche Website "
                 "zu einem vollständigen Impressum — fehlt es, drohen Abmahnungen."
             ),
-            severity=Severity.HIGH,
+            severity=Severity.MEDIUM,
             category="DSGVO",
             recommendation="Impressum unter /impressum anlegen mit allen nach §5 DDG + HWG erforderlichen Angaben.",
         ))
@@ -203,7 +203,8 @@ def _check_impressum(domain: str, result: ScanResult) -> None:
             missing.append(label)
 
     if missing:
-        severity = Severity.HIGH if len(missing) >= 3 else Severity.MEDIUM
+        # Compliance finding — significant risk of Abmahnung but no system-access impact.
+        severity = Severity.MEDIUM if len(missing) >= 3 else Severity.LOW
         result.add(Finding(
             id="privacy.impressum_incomplete",
             title=f"Impressum unvollständig ({len(missing)} Pflichtangaben fehlen)",

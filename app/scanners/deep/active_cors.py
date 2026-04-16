@@ -96,7 +96,10 @@ def check_cors(domain: str, result: ScanResult, step: Callable[[str, int], None]
             "zurück oder akzeptiert 'null' bzw. Wildcard mit Credentials. Ein Angreifer kann "
             "dadurch im Browser des Opfers cross-origin Reads auf geschützte Endpunkte ausführen."
         ),
-        severity=Severity.CRITICAL if critical else Severity.HIGH,
+        # With credentials:true + reflected origin = direct cross-origin data exfil
+        # but requires victim to visit attacker page while logged in → HIGH, not CRITICAL.
+        # Without credentials = info-leak, effect depends on endpoint → LOW/MEDIUM.
+        severity=Severity.HIGH if critical else Severity.LOW,
         category="Deep Scan",
         evidence={"issues": issues},
         recommendation=(

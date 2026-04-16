@@ -191,7 +191,7 @@ def check_exposed_files(domain: str, result: ScanResult, step: Callable[[str, in
                 "Unter /.well-known/security.txt sollte eine Kontaktadresse für Security-Meldungen stehen. "
                 "Fehlt die Datei, haben wohlgesonnene Sicherheitsforscher keinen einfachen Meldeweg."
             ),
-            severity=Severity.LOW,
+            severity=Severity.INFO,
             category="Meta",
             recommendation="Lege eine /.well-known/security.txt an (siehe securitytxt.org).",
         ))

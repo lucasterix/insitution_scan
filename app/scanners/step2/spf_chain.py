@@ -104,7 +104,9 @@ def check_spf_chain(domain: str, result: ScanResult, step: Callable[[str, int], 
                 "dort einen SPF-Record einrichten, und dann E-Mails senden die den SPF-Check "
                 "der Zieldomain bestehen — perfektes Phishing."
             ),
-            severity=Severity.CRITICAL,
+            # Exploit requires attacker to register the expired domain AND send
+            # spoofed mail — domain registration is cheap but not zero-click.
+            severity=Severity.HIGH,
             category="Step-2 Analyse",
             evidence={"expired": expired, "chain": chain},
             recommendation=(

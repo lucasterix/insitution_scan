@@ -109,13 +109,16 @@ MANAGEMENT_PORTS: list[tuple[int, Severity, str, str]] = [
 
 # --- Remote desktop tool detection in HTML ---
 REMOTE_TOOL_SIGNATURES = [
-    (r"teamviewer", "TeamViewer", Severity.MEDIUM,
+    # These are just HTML mentions (logo, link, anchor) — no evidence the tool is
+    # actually running. Risk depends on internal setup. Downgraded to INFO; the
+    # finding should prompt an internal review, not be mistaken for a direct exposure.
+    (r"teamviewer", "TeamViewer", Severity.INFO,
      "TeamViewer-Referenz auf der Website gefunden. Wenn TeamViewer auf Praxis-PCs läuft: Unattended-Access prüfen, starkes Passwort erzwingen, Allowlist aktivieren."),
-    (r"anydesk", "AnyDesk", Severity.MEDIUM,
+    (r"anydesk", "AnyDesk", Severity.INFO,
      "AnyDesk-Referenz auf der Website gefunden. AnyDesk mit unbeaufsichtigtem Zugriff und schwachem Passwort ist ein häufiger Ransomware-Einstiegspunkt bei MVZ."),
-    (r"rustdesk", "RustDesk", Severity.LOW,
+    (r"rustdesk", "RustDesk", Severity.INFO,
      "RustDesk-Referenz gefunden. Open-Source Remote-Desktop — prüfen ob selbst-gehosteter Relay-Server sicher konfiguriert ist."),
-    (r"splashtop", "Splashtop", Severity.MEDIUM,
+    (r"splashtop", "Splashtop", Severity.INFO,
      "Splashtop Remote-Desktop-Referenz gefunden."),
 ]
 

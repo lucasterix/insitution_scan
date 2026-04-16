@@ -82,7 +82,9 @@ def check_open_redirect(domain: str, result: ScanResult, step: Callable[[str, in
             "Da der Link mit der vertrauenswürdigen Praxis-Domain beginnt, klicken "
             "Patienten und Mitarbeitende bedenkenlos — und landen auf einer Fake-Login-Seite."
         ),
-        severity=Severity.HIGH,
+        # Open-redirect is a phishing enabler, not direct compromise. Victim has to
+        # click an attacker-crafted link starting with the trusted domain.
+        severity=Severity.MEDIUM,
         category="Deep Scan",
         evidence={"hits": hits},
         recommendation=(

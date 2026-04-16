@@ -89,7 +89,7 @@ def check_host_header(domain: str, result: ScanResult, step: Callable[[str, int]
             "3. SSRF: Backend-Services die Host vertrauen senden Requests an den Angreifer-Host."
             + ("\n\n⚠️ Reflection im Location-Header — Password-Reset-Poisoning direkt möglich!" if in_location else "")
         ),
-        severity=Severity.HIGH if in_location else Severity.MEDIUM,
+        severity=Severity.MEDIUM if in_location else Severity.LOW,
         category="Deep Scan",
         evidence={"issues": issues},
         recommendation=(

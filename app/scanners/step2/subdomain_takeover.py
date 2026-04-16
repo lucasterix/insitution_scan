@@ -142,7 +142,10 @@ def check_subdomain_takeover(domain: str, result: ScanResult, step: Callable[[st
                 "beanspruchen und beliebige Inhalte auf der Subdomain der Praxis hosten — "
                 "inklusive Phishing-Login-Seiten mit gültigem TLS-Zertifikat."
             ),
-            severity=Severity.CRITICAL,
+            # Takeover requires attacker to register the resource at the target
+            # service + host phishing content — non-trivial but cheap. Phishing
+            # with valid TLS on a trusted subdomain = severe brand abuse.
+            severity=Severity.HIGH,
             category="Step-2 Analyse",
             evidence=d,
             recommendation=(

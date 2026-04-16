@@ -52,25 +52,28 @@ BROWSER_UA = (
 )
 
 SECURITY_HEADERS = {
+    # Security headers enable defense-in-depth — missing them does NOT directly
+    # compromise the site; they only matter when combined with other vulns
+    # (XSS, MITM, malicious upload). Downgrading from MEDIUM/LOW to LOW/INFO.
     "strict-transport-security": (
         "HSTS fehlt",
         "Strict-Transport-Security erzwingt HTTPS beim Browser — Schutz vor Downgrade-Angriffen.",
-        Severity.MEDIUM,
+        Severity.LOW,
     ),
     "content-security-policy": (
         "Content-Security-Policy fehlt",
         "CSP reduziert XSS-Risiken erheblich.",
-        Severity.MEDIUM,
+        Severity.LOW,
     ),
     "x-frame-options": (
         "X-Frame-Options fehlt",
         "Schutz vor Clickjacking (bzw. CSP frame-ancestors).",
-        Severity.LOW,
+        Severity.INFO,
     ),
     "x-content-type-options": (
         "X-Content-Type-Options fehlt",
         "Verhindert MIME-Type Sniffing.",
-        Severity.LOW,
+        Severity.INFO,
     ),
     "referrer-policy": (
         "Referrer-Policy fehlt",
@@ -282,7 +285,9 @@ def check_http(domain: str, result: ScanResult, step: Callable[[str, int], None]
             id="http.no_https_redirect",
             title="HTTP wird nicht auf HTTPS umgeleitet",
             description="Aufrufe über http://... landen nicht automatisch auf https://.",
-            severity=Severity.MEDIUM,
+            # Only affects the first request before HSTS kicks in. With Secure-flagged
+            # session cookies it's mostly a hygiene issue.
+            severity=Severity.LOW,
             category="Web",
             recommendation="301-Redirect von HTTP auf HTTPS konfigurieren.",
         ))
@@ -349,11 +354,13 @@ def check_tls(domain: str, result: ScanResult, step: Callable[[str, int], None])
             expires = datetime.strptime(not_after, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
             days_left = (expires - datetime.now(timezone.utc)).days
             if days_left < 0:
+                # Expired cert = browser warning, users click through, no direct access.
+                # Only elevates if combined with mixed-content or password fields.
                 result.add(Finding(
                     id="tls.expired",
                     title="TLS-Zertifikat abgelaufen",
-                    description=f"Das Zertifikat ist seit {-days_left} Tagen abgelaufen.",
-                    severity=Severity.CRITICAL,
+                    description=f"Das Zertifikat ist seit {-days_left} Tagen abgelaufen. Browser zeigen eine Warnung; Patienten klicken sie häufig weg, wodurch MITM-Angriffe möglich werden.",
+                    severity=Severity.HIGH,
                     category="TLS",
                 ))
             elif days_left < 14:
@@ -361,18 +368,21 @@ def check_tls(domain: str, result: ScanResult, step: Callable[[str, int], None])
                     id="tls.expires_soon",
                     title="TLS-Zertifikat läuft bald ab",
                     description=f"Das Zertifikat läuft in {days_left} Tagen ab.",
-                    severity=Severity.HIGH,
+                    severity=Severity.MEDIUM,
                     category="TLS",
                 ))
         except ValueError:
             pass
 
     if version and version in ("TLSv1", "TLSv1.1", "SSLv3"):
+        # SSLv3 = POODLE (CRITICAL historically, needs network position + client compromise)
+        # TLSv1.0/1.1 = BEAST/LUCKY13 — practical attacks need MITM and cooperating victim.
+        sev = Severity.HIGH if version == "SSLv3" else Severity.MEDIUM
         result.add(Finding(
             id="tls.legacy_protocol",
             title=f"Legacy TLS-Protokoll {version}",
             description="Veraltete TLS-Versionen sind unsicher und sollten deaktiviert werden.",
-            severity=Severity.HIGH,
+            severity=sev,
             category="TLS",
         ))
 
@@ -500,7 +510,9 @@ def check_ip_intel(domain: str, result: ScanResult, step: Callable[[str, int], N
                         id=f"abuseipdb.{ip}",
                         title=f"IP {ip} hat hohe Abuse-Reputation (Score {score}/100)",
                         description="AbuseIPDB meldet zahlreiche Missbrauchsmeldungen für diese IP. Eventuell kompromittiert oder auf Blacklist.",
-                        severity=Severity.HIGH if score >= 80 else Severity.MEDIUM,
+                        # Bad reputation = monitoring signal, not direct compromise.
+                        # Often caused by shared hosting with a noisy neighbor.
+                        severity=Severity.MEDIUM if score >= 80 else Severity.LOW,
                         category="Reputation",
                         evidence=ab,
                     ))
@@ -515,7 +527,7 @@ def check_ip_intel(domain: str, result: ScanResult, step: Callable[[str, int], N
                         id=f"otx.{ip}",
                         title=f"IP {ip} in {pulses} OTX-Threat-Pulses gelistet",
                         description="AlienVault OTX verknüpft diese IP mit bekannten Bedrohungs-Kampagnen.",
-                        severity=Severity.MEDIUM,
+                        severity=Severity.LOW,
                         category="Threat Intel",
                         evidence={"pulse_count": pulses},
                     ))
@@ -533,7 +545,7 @@ def check_ip_intel(domain: str, result: ScanResult, step: Callable[[str, int], N
                     id="otx.domain",
                     title=f"Domain in {pulses} OTX-Threat-Pulses gelistet",
                     description="AlienVault OTX verknüpft diese Domain mit bekannten Bedrohungs-Kampagnen.",
-                    severity=Severity.MEDIUM,
+                    severity=Severity.LOW,
                     category="Threat Intel",
                     evidence={"pulse_count": pulses},
                 ))

@@ -178,7 +178,10 @@ def check_image_metadata(domain: str, result: ScanResult, step: Callable[[str, i
                 "Home-Office-Fotos) ohne Rückfrage zu ermitteln — ein direktes DSGVO-Problem "
                 "und ein Risiko für Doxxing/Stalking."
             ),
-            severity=Severity.HIGH,
+            # Privacy/DSGVO finding, not a system-access issue. For MVZ/Praxen
+            # the GPS is usually the already-public office address; elevate only
+            # when it's clearly personal (home office). Default: MEDIUM.
+            severity=Severity.MEDIUM,
             category="Metadaten",
             evidence={"hits": gps_hits[:10]},
             recommendation=(
@@ -197,7 +200,7 @@ def check_image_metadata(domain: str, result: ScanResult, step: Callable[[str, i
                 "Bilder tragen personenbezogene Felder wie Artist/Author/Copyright/"
                 "CameraOwnerName. Das verknüpft Fotos mit realen Personen in der Praxis."
             ),
-            severity=Severity.MEDIUM,
+            severity=Severity.LOW,
             category="Metadaten",
             evidence={"hits": personal_hits[:20]},
             recommendation="EXIF-Autor/Copyright-Felder vor Upload leeren.",

@@ -92,7 +92,9 @@ def check_mixed_content(domain: str, result: ScanResult, step: Callable[[str, in
                 "mit veralteten Browsern) führen den Code aus. Ein MITM-Angreifer im selben "
                 "Netzwerk kann beliebigen JavaScript-Code einschleusen."
             ),
-            severity=Severity.HIGH,
+            # Modern browsers BLOCK active mixed content by default. Exploitation
+            # requires older browser + MITM position in victim's network.
+            severity=Severity.MEDIUM,
             category="Deep Scan",
             evidence={"resources": mixed_active[:10]},
             recommendation="Alle Script-/iFrame-Quellen auf https:// umstellen oder protocol-relative URLs (//) verwenden.",

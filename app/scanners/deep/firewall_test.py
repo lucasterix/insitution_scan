@@ -245,7 +245,9 @@ def check_firewall(domain: str, result: ScanResult, step: Callable[[str, int], N
                 "oder die WAF-Regeln sind zu permissiv. Das bedeutet: echte Angriffs-Payloads "
                 "erreichen die Anwendung ungehindert."
             ),
-            severity=Severity.HIGH,
+            # No WAF = no additional layer, but direct compromise still requires an
+            # actual injection vuln in the app. Defense-in-depth gap → MEDIUM.
+            severity=Severity.MEDIUM,
             category="Firewall",
             evidence={"passed": passed},
             recommendation="WAF aktivieren und Regelwerk auf OWASP Core Rule Set (CRS) setzen.",

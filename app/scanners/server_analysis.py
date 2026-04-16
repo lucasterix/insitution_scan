@@ -151,9 +151,11 @@ def check_server(domain: str, result: ScanResult, step: Callable[[str, int], Non
                     title="SSH-Protokoll Version 1 aktiv",
                     description=(
                         "Der SSH-Server unterstützt das veraltete Protokoll 1.0, das "
-                        "kryptographisch gebrochen ist (Man-in-the-Middle, Key-Recovery)."
+                        "kryptographisch gebrochen ist (Man-in-the-Middle, Key-Recovery). "
+                        "Praktischer Exploit erfordert MITM-Position im Netzwerk + Client "
+                        "der SSHv1 akzeptiert — beides in modernen Umgebungen selten."
                     ),
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HIGH,
                     category="Server",
                     evidence=ssh_info,
                     recommendation="SSH-Konfiguration auf 'Protocol 2' beschränken.",
