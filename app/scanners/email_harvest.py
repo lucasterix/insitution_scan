@@ -10,6 +10,7 @@ the breached-account endpoint.
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 import httpx
@@ -33,38 +34,48 @@ CANDIDATE_PATHS = (
 )
 
 
-def _fetch(client: httpx.Client, url: str) -> str:
+def _fetch(url: str) -> str:
     try:
-        r = client.get(url)
-        if r.status_code == 200 and "text/html" in r.headers.get("content-type", "").lower():
-            return r.text[:200_000]
+        with httpx.Client(
+            timeout=5.0,
+            headers={"User-Agent": USER_AGENT},
+            follow_redirects=True,
+        ) as client:
+            r = client.get(url)
+            if r.status_code == 200 and "text/html" in r.headers.get("content-type", "").lower():
+                return r.text[:200_000]
     except httpx.HTTPError:
         pass
     return ""
+
+
+def _extract_emails(text: str, domain: str, found: set[str]) -> None:
+    for m in EMAIL_RE.findall(text):
+        addr = m.lower().strip(".")
+        if addr.endswith((".png", ".jpg", ".gif", ".webp", ".svg")):
+            continue
+        local, _, dom = addr.partition("@")
+        if dom.endswith(domain):
+            found.add(addr)
 
 
 def harvest_and_check(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("E-Mail-Harvest + Leak-Check", 96)
 
     found: set[str] = set()
-    with httpx.Client(
-        timeout=8.0,
-        headers={"User-Agent": USER_AGENT},
-        follow_redirects=True,
-    ) as client:
-        for path in CANDIDATE_PATHS:
-            text = _fetch(client, f"https://{domain}{path}")
-            if not text:
-                continue
-            for m in EMAIL_RE.findall(text):
-                addr = m.lower().strip(".")
-                # Filter out obvious garbage (image hashes, typos, etc.)
-                if addr.endswith((".png", ".jpg", ".gif", ".webp", ".svg")):
-                    continue
-                # Only keep addresses ending in the target domain or a direct subdomain
-                local, _, dom = addr.partition("@")
-                if dom.endswith(domain):
-                    found.add(addr)
+
+    # Reuse cached homepage HTML — saves one fetch.
+    cached_home = result.metadata.get("homepage_html") or ""
+    if cached_home:
+        _extract_emails(cached_home, domain, found)
+
+    paths_to_fetch = [p for p in CANDIDATE_PATHS if p != "/" or not cached_home]
+    urls = [f"https://{domain}{p}" for p in paths_to_fetch]
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for text in ex.map(_fetch, urls):
+            if text:
+                _extract_emails(text, domain, found)
 
     if not found:
         return

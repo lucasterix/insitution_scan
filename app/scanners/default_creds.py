@@ -79,6 +79,16 @@ def check_default_creds(domain: str, result: ScanResult, step: Callable[[str, in
     dir_fuzz_paths = set(
         h.get("path", "").lower() for h in result.metadata.get("directory_fuzz") or []
     )
+    # Also pull live paths from Wayback — if /admin/, /grafana/ etc. were historically
+    # indexed and still respond, default_creds should test them.
+    from urllib.parse import urlparse
+    for hit in (result.metadata.get("wayback") or {}).get("live_hits") or []:
+        url = hit.get("url") or ""
+        try:
+            path = urlparse(url).path or "/"
+            dir_fuzz_paths.add(path.lower())
+        except ValueError:
+            continue
     # Also check exposed_files and cms findings for admin panels
     all_findings_text = " ".join(f.title.lower() for f in result.findings)
 

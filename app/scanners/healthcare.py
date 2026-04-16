@@ -228,27 +228,30 @@ def _probe_connector_paths(domain: str, result: ScanResult, baselines: set[str])
 
 
 def _check_pvs_fingerprint(domain: str, result: ScanResult) -> None:
-    # Reuse HTML already pulled by the HTTP check if available.
-    html_text = ""
-    try:
-        with httpx.Client(
-            timeout=8.0,
-            headers={"User-Agent": USER_AGENT},
-            follow_redirects=True,
-        ) as client:
-            r = client.get(f"https://{domain}")
-            if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
-                html_text = r.text[:500_000]
-                # Also try /impressum and /kontakt — widgets often live there.
-                for path in ("/impressum", "/kontakt", "/termine"):
-                    try:
-                        r2 = client.get(f"https://{domain}{path}")
-                        if r2.status_code == 200 and "text/html" in r2.headers.get("content-type", ""):
-                            html_text += "\n" + r2.text[:200_000]
-                    except httpx.HTTPError:
-                        continue
-    except httpx.HTTPError:
-        return
+    # Start with cached homepage HTML from osint.py (saves one fetch).
+    html_text = result.metadata.get("homepage_html") or ""
+
+    def _fetch_path(path: str) -> str:
+        try:
+            with httpx.Client(
+                timeout=5.0, headers={"User-Agent": USER_AGENT}, follow_redirects=True
+            ) as client:
+                r = client.get(f"https://{domain}{path}")
+                if r.status_code == 200 and "text/html" in r.headers.get("content-type", ""):
+                    return r.text[:200_000]
+        except httpx.HTTPError:
+            pass
+        return ""
+
+    paths = ["/impressum", "/kontakt", "/termine"]
+    if not html_text:
+        paths.insert(0, "/")
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for chunk in ex.map(_fetch_path, paths):
+            if chunk:
+                html_text += "\n" + chunk
 
     if not html_text:
         return

@@ -133,47 +133,63 @@ def check_remote_access(domain: str, result: ScanResult, step: Callable[[str, in
 
     baselines = fetch_baselines(domain)
 
-    # --- 1. Web-based remote access tools ---
-    web_hits: list[dict] = []
-    with httpx.Client(
-        timeout=TIMEOUT, follow_redirects=False,
-        headers={"User-Agent": USER_AGENT},
-    ) as client:
-        for path, hints, tool, sev, desc, cves in REMOTE_ACCESS_PATHS:
-            try:
-                r = client.get(f"https://{domain}{path}")
-            except httpx.HTTPError:
+    # --- 1. Web-based remote access tools (parallelized) ---
+    def _probe_web(host_and_spec: tuple) -> dict | None:
+        host, spec = host_and_spec
+        path, hints, tool, sev, desc, cves = spec
+        try:
+            with httpx.Client(
+                timeout=TIMEOUT, follow_redirects=False,
+                headers={"User-Agent": USER_AGENT},
+            ) as client:
                 try:
-                    r = client.get(f"http://{domain}{path}")
+                    r = client.get(f"https://{host}{path}")
                 except httpx.HTTPError:
-                    continue
+                    try:
+                        r = client.get(f"http://{host}{path}")
+                    except httpx.HTTPError:
+                        return None
+        except httpx.HTTPError:
+            return None
 
-            if r.status_code not in (200, 401, 403):
-                continue
+        if r.status_code not in (200, 401, 403):
+            return None
 
-            # 401/403 = tool exists (auth required)
-            if r.status_code in (401, 403):
-                web_hits.append({"path": path, "tool": tool, "status": r.status_code,
-                                 "sev": sev, "desc": desc, "cves": cves})
-                continue
+        if r.status_code in (401, 403):
+            return {"host": host, "path": path, "tool": tool, "status": r.status_code,
+                    "sev": sev, "desc": desc, "cves": cves}
 
-            # 200: check content hints + baseline defense
-            body = r.text[:8192] if "text" in r.headers.get("content-type", "").lower() else ""
-            if is_catchall(body, baselines):
-                continue
-            if not any(h in body.lower() for h in hints):
-                continue
+        body = r.text[:8192] if "text" in r.headers.get("content-type", "").lower() else ""
+        if is_catchall(body, baselines):
+            return None
+        if not any(h in body.lower() for h in hints):
+            return None
 
-            web_hits.append({"path": path, "tool": tool, "status": r.status_code,
-                             "sev": sev, "desc": desc, "cves": cves,
-                             "body": body, "server": r.headers.get("server", "")})
+        return {"host": host, "path": path, "tool": tool, "status": r.status_code,
+                "sev": sev, "desc": desc, "cves": cves,
+                "body": body, "server": r.headers.get("server", "")}
 
-    # Deduplicate by tool name + extract version
-    seen_tools: set[str] = set()
+    # Probe main domain for ALL paths + alive subdomains for CRITICAL/HIGH paths.
+    targets: list[tuple[str, tuple]] = [(domain, spec) for spec in REMOTE_ACCESS_PATHS]
+    alive_subs = list((result.metadata.get("subdomain_walk") or {}).get("results") or {})
+    high_value_paths = [s for s in REMOTE_ACCESS_PATHS if s[3] in (Severity.CRITICAL, Severity.HIGH)]
+    for sub in alive_subs[:10]:
+        for spec in high_value_paths:
+            targets.append((sub, spec))
+
+    web_hits: list[dict] = []
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        for hit in ex.map(_probe_web, targets):
+            if hit:
+                web_hits.append(hit)
+
+    # Deduplicate by (host, tool) so a tool on a subdomain is still reported separately.
+    seen_tools: set[tuple[str, str]] = set()
     for hit in web_hits:
-        if hit["tool"] in seen_tools:
+        key = (hit.get("host", domain), hit["tool"])
+        if key in seen_tools:
             continue
-        seen_tools.add(hit["tool"])
+        seen_tools.add(key)
 
         # --- Version extraction from response body + headers ---
         detected_version = None
@@ -200,12 +216,16 @@ def check_remote_access(domain: str, result: ScanResult, step: Callable[[str, in
             result.metadata.setdefault("tech", {})[tech_key] = detected_version
 
         version_text = f" Version {detected_version}" if detected_version else ""
+        host = hit.get("host", domain)
+        host_suffix = "" if host == domain else f" (Subdomain: {host})"
+        id_host = host.replace(".", "_")
 
         result.add(Finding(
-            id=f"remote.web.{hit['tool'].lower().replace(' ', '_')}",
-            title=f"Fernwartungstool öffentlich erreichbar: {hit['tool']}{version_text}",
+            id=f"remote.web.{id_host}.{hit['tool'].lower().replace(' ', '_')}",
+            title=f"Fernwartungstool öffentlich erreichbar: {hit['tool']}{version_text}{host_suffix}",
             description=(
                 f"{hit['desc']}\n\n"
+                f"Host: {host}\n"
                 f"Pfad: {hit['path']} (HTTP {hit['status']})\n"
                 + (f"Bekannte CVEs: {hit['cves']}" if hit["cves"] else "")
                 + "\n\nFernwartungstools aus dem Internet sind eines der häufigsten "
@@ -215,7 +235,7 @@ def check_remote_access(domain: str, result: ScanResult, step: Callable[[str, in
             ),
             severity=hit["sev"],
             category="Fernwartung",
-            evidence={"tool": hit["tool"], "path": hit["path"], "status": hit["status"], "cves": hit["cves"]},
+            evidence={"tool": hit["tool"], "host": host, "path": hit["path"], "status": hit["status"], "cves": hit["cves"]},
             recommendation=(
                 f"1. Prüfen ob {hit['tool']} tatsächlich benötigt wird.\n"
                 "2. Zugriff per IP-Whitelist/VPN einschränken.\n"

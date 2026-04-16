@@ -11,6 +11,7 @@ redirects without suspicion.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 from urllib.parse import urlencode
 
@@ -31,36 +32,40 @@ PARAM_NAMES = (
 BASE_PATHS = ("/", "/login", "/logout", "/redirect")
 
 
+def _probe(domain: str, base_path: str, param: str) -> dict | None:
+    url = f"https://{domain}{base_path}?{urlencode({param: CANARY_URL})}"
+    try:
+        with httpx.Client(
+            timeout=5.0, follow_redirects=False,
+            headers={"User-Agent": USER_AGENT},
+        ) as client:
+            r = client.get(url)
+    except httpx.HTTPError:
+        return None
+    if r.status_code not in (301, 302, 303, 307, 308):
+        return None
+    location = r.headers.get("location", "")
+    if CANARY_URL in location or "evil-redirect-probe" in location:
+        return {"path": base_path, "param": param, "status": r.status_code, "location": location[:200]}
+    return None
+
+
 def check_open_redirect(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("Open-Redirect-Probe", 67)
 
+    seen_paths: set[str] = set()
     hits: list[dict] = []
 
-    with httpx.Client(
-        timeout=5.0,
-        follow_redirects=False,
-        headers={"User-Agent": USER_AGENT},
-    ) as client:
-        for base_path in BASE_PATHS:
-            for param in PARAM_NAMES:
-                url = f"https://{domain}{base_path}?{urlencode({param: CANARY_URL})}"
-                try:
-                    r = client.get(url)
-                except httpx.HTTPError:
-                    continue
-
-                if r.status_code not in (301, 302, 303, 307, 308):
-                    continue
-
-                location = r.headers.get("location", "")
-                if CANARY_URL in location or "evil-redirect-probe" in location:
-                    hits.append({
-                        "path": base_path,
-                        "param": param,
-                        "status": r.status_code,
-                        "location": location[:200],
-                    })
-                    break  # One hit per base_path is enough
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        futures = [
+            ex.submit(_probe, domain, bp, p)
+            for bp in BASE_PATHS for p in PARAM_NAMES
+        ]
+        for fut in as_completed(futures):
+            hit = fut.result()
+            if hit and hit["path"] not in seen_paths:
+                hits.append(hit)
+                seen_paths.add(hit["path"])
 
     if not hits:
         return

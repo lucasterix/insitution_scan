@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 import httpx
@@ -72,9 +73,12 @@ def _collect_urls(domain: str, result: ScanResult) -> list[str]:
     return urls
 
 
-def _fetch(client: httpx.Client, url: str) -> bytes | None:
+def _fetch(url: str) -> bytes | None:
     try:
-        r = client.get(url)
+        with httpx.Client(
+            timeout=6.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
+        ) as client:
+            r = client.get(url)
     except httpx.HTTPError:
         return None
     if r.status_code != 200:
@@ -124,21 +128,21 @@ def check_image_metadata(domain: str, result: ScanResult, step: Callable[[str, i
 
     reports: list[dict] = []
     sensitive_hits: list[dict] = []
+    target_urls = urls[:MAX_IMAGES]
 
-    with httpx.Client(
-        timeout=10.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
-    ) as client:
-        for url in urls[:MAX_IMAGES]:
-            raw = _fetch(client, url)
-            if raw is None:
-                continue
-            meta = _extract_exif(raw)
-            if not meta:
-                continue
-            reports.append({"url": url, "exif_keys": list(meta.keys())})
-            for key in SENSITIVE_EXIF_KEYS:
-                if key in meta:
-                    sensitive_hits.append({"url": url, "key": key, "value": meta[key]})
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        results = list(ex.map(_fetch, target_urls))
+
+    for url, raw in zip(target_urls, results):
+        if raw is None:
+            continue
+        meta = _extract_exif(raw)
+        if not meta:
+            continue
+        reports.append({"url": url, "exif_keys": list(meta.keys())})
+        for key in SENSITIVE_EXIF_KEYS:
+            if key in meta:
+                sensitive_hits.append({"url": url, "key": key, "value": meta[key]})
 
     if not reports:
         return

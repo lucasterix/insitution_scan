@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 import httpx
@@ -66,9 +67,12 @@ def _collect_urls(domain: str, result: ScanResult) -> list[str]:
     return urls
 
 
-def _fetch_pdf(client: httpx.Client, url: str) -> bytes | None:
+def _fetch_pdf(url: str) -> bytes | None:
     try:
-        r = client.get(url)
+        with httpx.Client(
+            timeout=8.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
+        ) as client:
+            r = client.get(url)
     except httpx.HTTPError:
         return None
     if r.status_code != 200:
@@ -105,21 +109,21 @@ def check_pdf_metadata(domain: str, result: ScanResult, step: Callable[[str, int
     sensitive_hits: list[dict] = []
     pdfs_from_wayback = set((result.metadata.get("wayback") or {}).get("historical_live_pdfs") or [])
 
-    with httpx.Client(
-        timeout=10.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}
-    ) as client:
-        for url in urls[:MAX_PDFS]:
-            pdf_bytes = _fetch_pdf(client, url)
-            if pdf_bytes is None:
-                continue
-            meta = _extract_metadata(pdf_bytes)
-            if meta is None:
-                continue
-            source = "wayback" if url in pdfs_from_wayback else "site"
-            pdfs_checked.append({"url": url, "metadata": meta, "source": source})
-            author = meta.get("/Author", "") or ""
-            if author and len(author) >= 3 and author.lower() not in ("admin", "user", "root"):
-                sensitive_hits.append({"url": url, "key": "Author", "value": author, "source": source})
+    target_urls = urls[:MAX_PDFS]
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        bytes_results = list(ex.map(_fetch_pdf, target_urls))
+
+    for url, pdf_bytes in zip(target_urls, bytes_results):
+        if pdf_bytes is None:
+            continue
+        meta = _extract_metadata(pdf_bytes)
+        if meta is None:
+            continue
+        source = "wayback" if url in pdfs_from_wayback else "site"
+        pdfs_checked.append({"url": url, "metadata": meta, "source": source})
+        author = meta.get("/Author", "") or ""
+        if author and len(author) >= 3 and author.lower() not in ("admin", "user", "root"):
+            sensitive_hits.append({"url": url, "key": "Author", "value": author, "source": source})
 
     if not pdfs_checked:
         return
