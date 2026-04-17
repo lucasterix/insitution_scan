@@ -147,6 +147,99 @@ def _check_cookies(headers: dict, result: ScanResult) -> None:
         ))
 
 
+# Phone must start at a boundary and not be preceded by a tax-number-like digit group.
+_PHONE_RE = re.compile(r"(?:(?<!\d)|^)(?:\+49|0049|\b0)[\s\-/()]?\d[\d\s\-/()]{6,18}\d")
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_PLZ_CITY_RE = re.compile(r"\b(\d{5})\s+([A-ZÄÖÜ][\wäöüß\-]{2,30})\b")
+_STREET_RE = re.compile(r"\b([A-ZÄÖÜ][\wäöüß.\-]{1,40}(?:straße|Straße|str\.|Str\.|weg|Weg|allee|Allee|platz|Platz|gasse|Gasse|ring|Ring|damm|Damm))\s+(\d+\s?[a-z]?)\b")
+_HRB_RE = re.compile(r"HR[AB]\s*\d{2,8}", re.IGNORECASE)
+_VAT_RE = re.compile(r"\bDE\s?\d{9}\b")
+_STEUER_RE = re.compile(r"Steuer[-\s]?nummer[:\s]+([\d/]{6,25})", re.IGNORECASE)
+_RESPONSIBLE_RE = re.compile(r"§\s?18\s?(?:Abs\.?\s?2\s?)?MStV[^\n]{0,80}?[:\s\n]\s*([A-ZÄÖÜ][\wäöüß.\-]{1,20}\s+[A-ZÄÖÜ][\wäöüß.\-]{1,30})")
+_MANAGER_RE = re.compile(r"(?:Geschäftsführer(?:in)?|Inhaber(?:in)?|Vertretungsberechtigt[e]?[rn]?)\s*:?\s*((?:Dr\.|Prof\.|Prof\. Dr\.)?\s*[A-ZÄÖÜ][\wäöüß.\-]{1,20}\s+[A-ZÄÖÜ][\wäöüß.\-]{1,30})", re.IGNORECASE)
+_COMPANY_RE = re.compile(r"(?:^|[\n\|])\s*([A-ZÄÖÜ][\w&. \-äöüß]{2,60}(?:GmbH(?:\s*&\s*Co\.\s*KG)?|KG|AG|UG\s*\(haftungsbeschränkt\)|e\.\s?V\.|MVZ|Partnerschaft|GbR))\b")
+
+
+def _strip_html(html: str) -> str:
+    """Return a whitespace-normalized plain-text view of the HTML.
+
+    Crucially we replace block-level closers with newlines BEFORE stripping
+    tags, so line-based patterns (company name on its own line, address block
+    layout) keep their structure.
+    """
+    html = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", html, flags=re.IGNORECASE | re.DOTALL)
+    html = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
+    html = re.sub(r"</(?:p|div|h[1-6]|li|tr|address|section|article)>", "\n", html, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = text.replace("&nbsp;", " ").replace("&amp;", "&")
+    text = re.sub(r"&(?:#x?[0-9a-f]+|[a-z]+);", " ", text, flags=re.IGNORECASE)
+    # Collapse intra-line whitespace but preserve line breaks.
+    lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in text.splitlines()]
+    return "\n".join(ln for ln in lines if ln)
+
+
+def _extract_contact_from_html(html: str, domain: str) -> dict:
+    """Best-effort extraction of structured contact info from an Impressum page.
+
+    Everything returned is a *hint* — creative typography can cause misparses.
+    Runs on a lightly-stripped text view that preserves block-level line breaks.
+    """
+    text = _strip_html(html)
+    out: dict = {}
+
+    m = _COMPANY_RE.search("\n" + text)  # prepend \n so line-start anchor works at pos 0
+    if m:
+        out["company"] = re.sub(r"\s+", " ", m.group(1)).strip()
+
+    m = _MANAGER_RE.search(text)
+    if m:
+        out["manager"] = re.sub(r"\s+", " ", m.group(1)).strip()
+    m = _RESPONSIBLE_RE.search(text)
+    if m:
+        out["responsible_person"] = re.sub(r"\s+", " ", m.group(1)).strip()
+
+    m = _STREET_RE.search(text)
+    if m:
+        out["street"] = f"{m.group(1)} {m.group(2)}".strip()
+    m = _PLZ_CITY_RE.search(text)
+    if m:
+        out["postal_code"] = m.group(1)
+        out["city"] = m.group(2).strip()
+
+    phones: list[str] = []
+    for m in _PHONE_RE.finditer(text):
+        val = re.sub(r"\s+", " ", m.group(0)).strip()
+        # Skip values that look like Steuernummer/HRB (contain slashes in weird spots).
+        digit_count = sum(1 for c in val if c.isdigit())
+        if digit_count < 6 or digit_count > 15:
+            continue
+        if val not in phones:
+            phones.append(val)
+    if phones:
+        out["phones"] = phones[:3]
+
+    emails: list[str] = []
+    for m in _EMAIL_RE.finditer(text):
+        e = m.group(0).lower()
+        if e not in emails and not e.endswith((".png", ".jpg", ".svg", ".gif")):
+            emails.append(e)
+    if emails:
+        emails.sort(key=lambda e: (not e.endswith(f"@{domain}"), e))
+        out["emails"] = emails[:5]
+
+    m = _HRB_RE.search(text)
+    if m:
+        out["hrb"] = re.sub(r"\s+", " ", m.group(0)).strip()
+    m = _VAT_RE.search(text)
+    if m:
+        out["vat_id"] = m.group(0).replace(" ", "")
+    m = _STEUER_RE.search(text)
+    if m:
+        out["steuernummer"] = m.group(1).strip()
+
+    return out
+
+
 def _check_impressum(domain: str, result: ScanResult) -> None:
     # Use the browser UA that worked for the homepage pre-fetch (some WAFs
     # block unknown bots). Fallback to our UA.
@@ -195,7 +288,10 @@ def _check_impressum(domain: str, result: ScanResult) -> None:
         ))
         return
 
-    result.metadata["impressum"] = {"url": impressum_url}
+    # Store structured contact data for the offer/contact panel.
+    contact = _extract_contact_from_html(impressum_html, domain)
+    contact["source_url"] = impressum_url
+    result.metadata["impressum"] = {"url": impressum_url, **contact}
 
     missing: list[str] = []
     for pattern, label in IMPRESSUM_REQUIRED:

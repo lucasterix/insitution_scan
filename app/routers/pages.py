@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import get_current_user
 from app.compliance.analysis import build_kbv_summary
 from app.compliance.dashboard import build_dashboard
+from app.compliance.offer import build_offer, format_eur
 from app.db import get_session
 from app.models import Scan
 from app.queue import redis_conn, scan_queue
@@ -139,6 +140,20 @@ async def create_scan(
     return RedirectResponse(url="/?batch=" + str(len(created_ids)), status_code=303)
 
 
+def _contact_and_offer(scan: Scan) -> tuple[dict, dict]:
+    """Build the contact card + offer for templates."""
+    result = scan.result or {}
+    contact = (result.get("metadata") or {}).get("impressum") or {}
+    # Fall back to harvested emails when impressum parse missed one.
+    if not contact.get("emails"):
+        harvested = (result.get("metadata") or {}).get("harvested_emails") or []
+        if harvested:
+            contact = {**contact, "emails": harvested[:5]}
+    rate = (scan.context or {}).get("hourly_rate_eur") if scan.context else None
+    offer = build_offer(result, hourly_rate_eur=rate) if scan.status == "completed" else None
+    return contact, offer
+
+
 @router.get("/scans/{scan_id}", response_class=HTMLResponse)
 async def scan_detail(
     request: Request, scan_id: str, session: AsyncSession = Depends(get_session)
@@ -148,9 +163,11 @@ async def scan_detail(
         raise HTTPException(status_code=404, detail="Scan nicht gefunden")
     kbv = build_kbv_summary(scan.result)
     dashboard = build_dashboard(scan.result)
+    contact, offer = _contact_and_offer(scan)
     return await _tpl(
         request, session, "scan_detail.html",
-        {"scan": scan, "kbv": kbv, "dashboard": dashboard},
+        {"scan": scan, "kbv": kbv, "dashboard": dashboard,
+         "contact": contact, "offer": offer, "format_eur": format_eur},
     )
 
 
@@ -163,8 +180,11 @@ async def scan_status_fragment(
         raise HTTPException(status_code=404, detail="Scan nicht gefunden")
     kbv = build_kbv_summary(scan.result)
     dashboard = build_dashboard(scan.result)
+    contact, offer = _contact_and_offer(scan)
     return templates.TemplateResponse(
-        request, "partials/scan_status.html", {"scan": scan, "kbv": kbv, "dashboard": dashboard}
+        request, "partials/scan_status.html",
+        {"scan": scan, "kbv": kbv, "dashboard": dashboard,
+         "contact": contact, "offer": offer, "format_eur": format_eur},
     )
 
 
@@ -196,6 +216,104 @@ async def delete_scan(
     if request.headers.get("hx-request"):
         return Response(status_code=200)
     return RedirectResponse(url="/", status_code=303)
+
+
+def _render_scan_pdf(request: Request, scan: Scan) -> bytes:
+    """Render the main scan report PDF (shared between download + email)."""
+    kbv = build_kbv_summary(scan.result)
+    dashboard = build_dashboard(scan.result)
+    generated_at = datetime.now(timezone.utc)
+    html = templates.get_template("report_pdf.html").render(
+        request=request, scan=scan, kbv=kbv, dashboard=dashboard, generated_at=generated_at
+    )
+    from weasyprint import HTML  # lazy import
+    return HTML(string=html, base_url=str(request.base_url)).write_pdf()
+
+
+def _render_offer_pdf(request: Request, scan: Scan) -> bytes:
+    """Render the offer/Angebot PDF (shared between download + email)."""
+    contact, offer = _contact_and_offer(scan)
+    generated_at = datetime.now(timezone.utc)
+    html = templates.get_template("offer_pdf.html").render(
+        request=request, scan=scan, contact=contact, offer=offer,
+        generated_at=generated_at, format_eur=format_eur,
+    )
+    from weasyprint import HTML  # lazy import
+    return HTML(string=html, base_url=str(request.base_url)).write_pdf()
+
+
+@router.get("/scans/{scan_id}/offer.pdf")
+async def scan_offer_pdf(
+    request: Request, scan_id: str, session: AsyncSession = Depends(get_session)
+) -> Response:
+    scan = await session.get(Scan, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan nicht gefunden")
+    if scan.status != "completed":
+        raise HTTPException(status_code=409, detail="Scan ist noch nicht abgeschlossen")
+    pdf_bytes = _render_offer_pdf(request, scan)
+    filename = f"angebot-{scan.target_domain}-{scan.id[:8]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/scans/{scan_id}/send_offer")
+async def send_offer_email(
+    request: Request,
+    scan_id: str,
+    to_email: str = Form(...),
+    subject: str = Form(...),
+    body: str = Form(...),
+    cc: str = Form(""),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    scan = await session.get(Scan, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan nicht gefunden")
+    if scan.status != "completed":
+        raise HTTPException(status_code=409, detail="Scan ist noch nicht abgeschlossen")
+
+    from app import mailer
+    if not mailer.is_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="SMTP ist nicht konfiguriert. In der Umgebung SMTP_HOST etc. setzen.",
+        )
+
+    # Re-render both PDFs freshly — cheapest way to guarantee they match current DB state.
+    scan_pdf = _render_scan_pdf(request, scan)
+    offer_pdf = _render_offer_pdf(request, scan)
+
+    attachments = [
+        (f"angebot-{scan.target_domain}-{scan.id[:8]}.pdf", offer_pdf, "application/pdf"),
+        (f"pruefbericht-{scan.target_domain}-{scan.id[:8]}.pdf", scan_pdf, "application/pdf"),
+    ]
+
+    try:
+        mailer.send_offer_email(
+            to_email=to_email,
+            subject=subject,
+            body_text=body,
+            attachments=attachments,
+            cc=cc or None,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"SMTP-Fehler: {type(e).__name__}: {e}")
+
+    if request.headers.get("hx-request"):
+        return HTMLResponse(
+            '<div class="rounded-xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-900">'
+            f'E-Mail wurde erfolgreich an {to_email} versendet. Angebot und Prüfbericht sind als Anhang enthalten.'
+            '</div>'
+        )
+    return RedirectResponse(url=f"/scans/{scan_id}?sent=1", status_code=303)
 
 
 @router.get("/scans/{scan_id}/report.pdf")

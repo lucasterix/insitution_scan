@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Angebot — {{ scan.target_domain }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 22mm 18mm 25mm 18mm;
+      @top-left { content: "Angebot · ZDKG"; font-size: 8pt; color: #64748b; }
+      @top-right { content: "{{ scan.target_domain }}"; font-size: 8pt; color: #64748b; }
+      @bottom-center { content: "Seite " counter(page) " / " counter(pages); font-size: 8pt; color: #64748b; }
+    }
+
+    @font-face {
+      font-family: "Aptos";
+      src: url("{{ request.base_url }}static/fonts/Aptos.ttf") format("truetype");
+      font-weight: 400; font-style: normal;
+    }
+    @font-face {
+      font-family: "Aptos";
+      src: url("{{ request.base_url }}static/fonts/Aptos-Bold.ttf") format("truetype");
+      font-weight: 700; font-style: normal;
+    }
+    @font-face {
+      font-family: "Aptos";
+      src: url("{{ request.base_url }}static/fonts/Aptos-Italic.ttf") format("truetype");
+      font-weight: 400; font-style: italic;
+    }
+
+    * { box-sizing: border-box; }
+    body { font-family: "Aptos", "DejaVu Sans", sans-serif; color: #0f172a; font-size: 10pt; line-height: 1.55; }
+    h1 { font-size: 22pt; margin: 0 0 4pt 0; color: #064e3b; font-weight: 700; }
+    h2 { font-size: 13pt; margin: 16pt 0 6pt 0; color: #064e3b; border-bottom: 1pt solid #064e3b; padding-bottom: 3pt; font-weight: 700; }
+    h3 { font-size: 10pt; margin: 10pt 0 4pt 0; color: #334155; font-weight: 700; }
+    p { margin: 4pt 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 9.5pt; margin: 6pt 0; }
+    th, td { padding: 5pt 7pt; text-align: left; border-bottom: 0.5pt solid #e2e8f0; vertical-align: top; }
+    th { background: #f8fafc; color: #475569; font-weight: 700; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.4pt; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .meta { display: flex; justify-content: space-between; margin-bottom: 10pt; font-size: 9pt; color: #475569; }
+    .meta .block strong { display: block; color: #0f172a; font-size: 10pt; margin-bottom: 2pt; }
+
+    .greeting { margin: 12pt 0 16pt 0; }
+
+    .sev-pill { display: inline-block; padding: 1pt 5pt; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3pt; border-radius: 2pt; color: white; }
+    .sev-pill.critical { background: #dc2626; }
+    .sev-pill.high { background: #ea580c; }
+    .sev-pill.medium { background: #d97706; }
+    .sev-pill.low { background: #0284c7; }
+    .sev-pill.info { background: #94a3b8; }
+
+    .totals { margin-top: 12pt; }
+    .totals table { width: 65%; margin-left: auto; }
+    .totals .grand td { font-weight: 700; font-size: 11pt; background: #064e3b; color: white; border: none; }
+    .totals .grand td.num { text-align: right; }
+
+    .note { margin-top: 20pt; padding: 10pt 12pt; background: #f8fafc; border-left: 2.5pt solid #064e3b; font-size: 9pt; color: #475569; }
+
+    .footer { margin-top: 24pt; font-size: 8.5pt; color: #64748b; line-height: 1.5; border-top: 0.5pt solid #e2e8f0; padding-top: 8pt; }
+  </style>
+</head>
+<body>
+
+<h1>Angebot zur Behebung</h1>
+<p style="color: #64748b; font-size: 10pt; margin: 0;">Basierend auf der Sicherheitsprüfung vom {{ generated_at.strftime('%d.%m.%Y') }} für <strong>{{ scan.target_domain }}</strong>.</p>
+
+<div class="meta">
+  <div class="block">
+    <strong>Empfänger</strong>
+    {% if contact.company %}{{ contact.company }}<br>{% endif %}
+    {{ scan.institution_name }}<br>
+    {% if contact.street %}{{ contact.street }}<br>{% endif %}
+    {% if contact.postal_code or contact.city %}{{ contact.postal_code }} {{ contact.city }}<br>{% endif %}
+    {% if contact.manager %}z. Hd. {{ contact.manager }}<br>{% endif %}
+    {% if contact.emails %}{{ contact.emails[0] }}{% endif %}
+  </div>
+  <div class="block" style="text-align: right;">
+    <strong>Anbieter</strong>
+    Advanced Analytics GmbH<br>
+    Hans-Böckler-Straße 2c<br>
+    37079 Göttingen<br>
+    Daniel Rupp<br>
+    daniel.rupp@zdkg.de
+  </div>
+</div>
+
+<div class="greeting">
+  <p>Sehr geehrte Damen und Herren,</p>
+  <p>
+    im Rahmen unserer automatisierten Sicherheitsprüfung haben wir auf Ihrer Domain
+    <strong>{{ scan.target_domain }}</strong> insgesamt
+    <strong>{{ offer["items"] | selectattr("severity", "ne", "info") | list | length }}
+    handlungsrelevante Befunde</strong> identifiziert. Nachfolgend finden Sie eine
+    offene, realistische Kalkulation des Aufwands zur Behebung.
+  </p>
+  <p>
+    Die Zeitansätze basieren auf durchschnittlichen Werten eines erfahrenen
+    IT-Sicherheits-Consultants. Einzelne Punkte können schneller umgesetzt sein,
+    wenn bereits Know-how vorhanden ist.
+  </p>
+</div>
+
+<h2>Aufwandsübersicht nach Schweregrad</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Schweregrad</th>
+      <th class="num">Befunde</th>
+      <th class="num">Stunden</th>
+      <th class="num">Netto</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for sev, label in [('critical','Kritisch'),('high','Hoch'),('medium','Mittel'),('low','Niedrig'),('info','Info')] %}
+      {% if offer.by_severity[sev].count > 0 %}
+      <tr>
+        <td><span class="sev-pill {{ sev }}">{{ label }}</span></td>
+        <td class="num">{{ offer.by_severity[sev].count }}</td>
+        <td class="num">{{ '%.2f'|format(offer.by_severity[sev].hours) }} h</td>
+        <td class="num">{{ format_eur(offer.by_severity[sev].net) }}</td>
+      </tr>
+      {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Detailpositionen</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Pos.</th>
+      <th>Befund</th>
+      <th>Schwere</th>
+      <th class="num">Std.</th>
+      <th class="num">Netto</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for it in offer["items"] if it.hours > 0 %}
+    <tr>
+      <td>{{ loop.index }}</td>
+      <td>{{ it.title }}<br><span style="color:#64748b;font-size:8.5pt;">{{ it.category }}</span></td>
+      <td><span class="sev-pill {{ it.severity }}">{{ it.severity }}</span></td>
+      <td class="num">{{ '%.2f'|format(it.hours) }}</td>
+      <td class="num">{{ format_eur(it.net_eur) }}</td>
+    </tr>
+    {% endfor %}
+    {% if not offer.has_action_items %}
+    <tr><td colspan="5" style="text-align:center; color:#64748b; padding:16pt;">Keine handlungsrelevanten Befunde.</td></tr>
+    {% endif %}
+  </tbody>
+</table>
+
+<div class="totals">
+<table>
+  <tr>
+    <td>Gesamtstunden</td>
+    <td class="num">{{ '%.2f'|format(offer.total_hours) }} h</td>
+  </tr>
+  <tr>
+    <td>Stundensatz</td>
+    <td class="num">{{ format_eur(offer.hourly_rate_eur) }}</td>
+  </tr>
+  <tr>
+    <td>Netto-Gesamtbetrag</td>
+    <td class="num">{{ format_eur(offer.net_eur) }}</td>
+  </tr>
+  <tr>
+    <td>zzgl. {{ (offer.vat_rate * 100) | int }} % USt.</td>
+    <td class="num">{{ format_eur(offer.vat_eur) }}</td>
+  </tr>
+  <tr class="grand">
+    <td>Brutto-Gesamtbetrag</td>
+    <td class="num">{{ format_eur(offer.gross_eur) }}</td>
+  </tr>
+</table>
+</div>
+
+<div class="note">
+  <strong>Hinweis zur Kalkulation:</strong>
+  Stundenansätze sind realistische Durchschnittswerte. Bei mehreren ähnlichen
+  Befunden (z.B. fehlende Security-Header oder veraltete Plugins) werden diese
+  in Praxis häufig gebündelt umgesetzt, was den tatsächlichen Aufwand reduziert.
+  Wir rechnen <strong>spitz nach tatsächlichem Aufwand</strong> ab — das hier
+  ist der maximale Deckel. Angebot ist 30 Tage gültig.
+</div>
+
+<div class="footer">
+  <strong>Advanced Analytics GmbH</strong> · Hans-Böckler-Straße 2c · 37079 Göttingen ·
+  Geschäftsführer: Daniel Rupp · HRB 207315 (AG Göttingen) · Steuernummer 2320/200/32222<br>
+  daniel.rupp@zdkg.de · +49 176 43677735 · zdkg.de
+</div>
+
+</body>
+</html>

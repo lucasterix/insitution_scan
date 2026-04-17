@@ -23,6 +23,18 @@ class Settings(BaseSettings):
     virustotal_api_key: str = ""
     hunter_api_key: str = ""
 
+    # Outbound SMTP for the "Angebot per E-Mail senden" feature.
+    # Leave empty to disable the send-email button (button shows mailto:-fallback).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True     # STARTTLS on 587
+    smtp_use_ssl: bool = False    # implicit TLS on 465
+    mail_from_address: str = "daniel.rupp@zdkg.de"
+    mail_from_name: str = "ZDKG — Advanced Analytics GmbH"
+    mail_reply_to: str = "daniel.rupp@zdkg.de"
+
 
 @lru_cache
 def get_settings() -> Settings:
