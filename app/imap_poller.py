@@ -18,10 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import email
+import email.policy  # explicit — otherwise email.policy.default raises AttributeError
 import email.utils
 import imaplib
 import logging
 import time
+import traceback
 from datetime import datetime, timedelta, timezone
 from email.header import decode_header, make_header
 from email.message import EmailMessage
@@ -229,11 +231,14 @@ async def poll_once() -> dict:
         return {"checked": 0, "new": 0}
 
     new_count = 0
+    errors = 0
     async with SessionLocal() as session:
         for uid, raw in raw_items:
             try:
                 msg = email.message_from_bytes(raw, policy=email.policy.default)
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                errors += 1
+                log.warning("parse failed for uid=%s: %s: %s", uid, type(e).__name__, e)
                 continue
 
             msg_id = _decode_header(msg.get("Message-ID")) or None
@@ -286,11 +291,19 @@ async def poll_once() -> dict:
             ))
             new_count += 1
 
-        await session.commit()
+        try:
+            await session.commit()
+        except Exception as e:  # noqa: BLE001
+            await session.rollback()
+            log.error("IMAP poll commit failed: %s: %s", type(e).__name__, e)
+            log.error("traceback: %s", traceback.format_exc())
+            return {"checked": len(raw_items), "new": 0, "errors": errors, "commit_error": str(e)[:200]}
 
     if new_count:
         log.info("IMAP poll: %d new message(s) stored", new_count)
-    return {"checked": len(raw_items), "new": new_count}
+    if errors:
+        log.warning("IMAP poll: %d parse error(s) skipped", errors)
+    return {"checked": len(raw_items), "new": new_count, "errors": errors}
 
 
 # ---------- Entrypoint ----------
