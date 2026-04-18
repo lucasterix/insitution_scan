@@ -27,8 +27,12 @@ def send_offer_email(
     attachments: Iterable[tuple[str, bytes, str]],  # (filename, bytes, mime-type)
     reply_to: str | None = None,
     cc: str | None = None,
-) -> None:
-    """Send a multipart/mixed email with the offer text + attachments.
+    attachments_meta_out: list[dict] | None = None,
+) -> dict:
+    """Send a multipart/mixed email + return a record describing the send.
+
+    Returns dict with keys: message_id, from_addr, to_addr, cc, subject,
+    body_text, attachments_meta — ready to feed into a Message model row.
 
     Raises RuntimeError when SMTP isn't configured. Raises smtplib.SMTPException
     on transport failures — caller should catch and surface a friendly message.
@@ -44,9 +48,12 @@ def send_offer_email(
         msg["Cc"] = cc.strip()
     msg["Subject"] = subject
     msg["Reply-To"] = reply_to or s.mail_reply_to or s.mail_from_address
-    msg["Message-ID"] = make_msgid(domain=s.mail_from_address.split("@", 1)[-1] or "zdkg.de")
+    domain = s.mail_from_address.split("@", 1)[-1] or "zdkg.de"
+    message_id = make_msgid(domain=domain)
+    msg["Message-ID"] = message_id
     msg.set_content(body_text, subtype="plain", charset="utf-8")
 
+    attachments_meta: list[dict] = []
     for filename, content, mime in attachments:
         main, _, sub = mime.partition("/")
         msg.add_attachment(
@@ -55,6 +62,7 @@ def send_offer_email(
             subtype=sub or "octet-stream",
             filename=filename,
         )
+        attachments_meta.append({"filename": filename, "size": len(content), "mime": mime})
 
     recipients = [msg["To"]]
     if cc:
@@ -72,3 +80,13 @@ def send_offer_email(
             if s.smtp_user:
                 server.login(s.smtp_user, s.smtp_password)
             server.send_message(msg, to_addrs=recipients)
+
+    return {
+        "message_id": message_id,
+        "from_addr": s.mail_from_address,
+        "to_addr": msg["To"],
+        "cc": cc or None,
+        "subject": subject,
+        "body_text": body_text,
+        "attachments_meta": attachments_meta,
+    }

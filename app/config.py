@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     mail_from_name: str = "ZDKG — Advanced Analytics GmbH"
     mail_reply_to: str = "daniel.rupp@zdkg.de"
 
+    # Inbound mail (IMAP). Same account as SMTP by default — Gmail supports both
+    # over the same app-password. Leave imap_host empty to disable inbox polling.
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
+    imap_user: str = ""                 # defaults to smtp_user at runtime when empty
+    imap_password: str = ""             # defaults to smtp_password at runtime when empty
+    imap_folder: str = "INBOX"
+    imap_poll_seconds: int = 120
+    imap_lookback_days: int = 60        # initial backfill window on first poll
+
 
 @lru_cache
 def get_settings() -> Settings:

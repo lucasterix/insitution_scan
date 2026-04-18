@@ -11,7 +11,7 @@ from app.compliance.analysis import build_kbv_summary
 from app.compliance.dashboard import build_dashboard
 from app.compliance.offer import build_offer, format_eur
 from app.db import get_session
-from app.models import Scan
+from app.models import Message, Scan
 from app.queue import redis_conn, scan_queue
 from app.scanners.osint import _normalize_domain
 from app.tasks import run_scan_job
@@ -154,6 +154,30 @@ def _contact_and_offer(scan: Scan) -> tuple[dict, dict]:
     return contact, offer
 
 
+async def _messages_for_scan(session: AsyncSession, scan: Scan) -> list[Message]:
+    """Return all messages tied to this scan (either directly or via sender domain match)."""
+    # Primary: direct scan_id link
+    q = select(Message).where(Message.scan_id == scan.id).order_by(Message.received_at.asc())
+    res = await session.execute(q)
+    msgs = list(res.scalars().all())
+
+    # Auxiliary: inbound mails from the scan's target_domain that landed without
+    # a scan_id link — surface them as "likely related". Keep IDs dedup'd.
+    seen = {m.id for m in msgs}
+    q2 = select(Message).where(
+        Message.direction == "inbound",
+        Message.scan_id.is_(None),
+        Message.from_addr.ilike(f"%@{scan.target_domain}"),
+    ).order_by(Message.received_at.asc())
+    res2 = await session.execute(q2)
+    for m in res2.scalars().all():
+        if m.id not in seen:
+            msgs.append(m)
+    # Final sort by received_at
+    msgs.sort(key=lambda m: m.received_at or datetime.min.replace(tzinfo=timezone.utc))
+    return msgs
+
+
 @router.get("/scans/{scan_id}", response_class=HTMLResponse)
 async def scan_detail(
     request: Request, scan_id: str, session: AsyncSession = Depends(get_session)
@@ -164,10 +188,12 @@ async def scan_detail(
     kbv = build_kbv_summary(scan.result)
     dashboard = build_dashboard(scan.result)
     contact, offer = _contact_and_offer(scan)
+    messages = await _messages_for_scan(session, scan)
     return await _tpl(
         request, session, "scan_detail.html",
         {"scan": scan, "kbv": kbv, "dashboard": dashboard,
-         "contact": contact, "offer": offer, "format_eur": format_eur},
+         "contact": contact, "offer": offer, "format_eur": format_eur,
+         "messages": messages},
     )
 
 
@@ -181,11 +207,71 @@ async def scan_status_fragment(
     kbv = build_kbv_summary(scan.result)
     dashboard = build_dashboard(scan.result)
     contact, offer = _contact_and_offer(scan)
+    messages = await _messages_for_scan(session, scan)
     return templates.TemplateResponse(
         request, "partials/scan_status.html",
         {"scan": scan, "kbv": kbv, "dashboard": dashboard,
-         "contact": contact, "offer": offer, "format_eur": format_eur},
+         "contact": contact, "offer": offer, "format_eur": format_eur,
+         "messages": messages},
     )
+
+
+@router.get("/inbox", response_class=HTMLResponse)
+async def inbox(
+    request: Request, session: AsyncSession = Depends(get_session)
+) -> HTMLResponse:
+    # Load last 200 messages across all scans, newest first.
+    q = select(Message).order_by(Message.received_at.desc()).limit(200)
+    res = await session.execute(q)
+    messages = list(res.scalars().all())
+    # Fetch associated scans in bulk for display links.
+    scan_ids = {m.scan_id for m in messages if m.scan_id}
+    scans_by_id: dict[str, Scan] = {}
+    if scan_ids:
+        q2 = select(Scan).where(Scan.id.in_(scan_ids))
+        res2 = await session.execute(q2)
+        for s in res2.scalars():
+            scans_by_id[s.id] = s
+    return await _tpl(
+        request, session, "inbox.html",
+        {"messages": messages, "scans_by_id": scans_by_id},
+    )
+
+
+@router.get("/messages/{message_id}", response_class=HTMLResponse)
+async def message_detail(
+    request: Request, message_id: str, session: AsyncSession = Depends(get_session)
+) -> HTMLResponse:
+    msg = await session.get(Message, message_id)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
+    scan = await session.get(Scan, msg.scan_id) if msg.scan_id else None
+    return await _tpl(
+        request, session, "message_detail.html",
+        {"msg": msg, "scan": scan},
+    )
+
+
+@router.post("/inbox/poll")
+async def inbox_poll(
+    request: Request, session: AsyncSession = Depends(get_session)
+) -> Response:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+    # On-demand poll — runs synchronously in the request for quick feedback.
+    from app.imap_poller import poll_once
+    summary = await poll_once()
+    if request.headers.get("hx-request"):
+        new = summary.get("new", 0)
+        if summary.get("error"):
+            body = f'<div class="text-sm text-rose-700">Fehler: {summary["error"]}</div>'
+        elif new:
+            body = f'<div class="text-sm text-emerald-700">{new} neue Nachricht(en) abgerufen — Seite aktualisieren.</div>'
+        else:
+            body = '<div class="text-sm text-slate-500">Keine neuen Nachrichten.</div>'
+        return HTMLResponse(body)
+    return RedirectResponse(url="/inbox", status_code=303)
 
 
 @router.post("/scans/{scan_id}/delete")
@@ -297,7 +383,7 @@ async def send_offer_email(
     ]
 
     try:
-        mailer.send_offer_email(
+        send_record = mailer.send_offer_email(
             to_email=to_email,
             subject=subject,
             body_text=body,
@@ -306,6 +392,21 @@ async def send_offer_email(
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"SMTP-Fehler: {type(e).__name__}: {e}")
+
+    # Persist the outbound message so future inbound replies can be threaded to
+    # this scan via In-Reply-To matching.
+    session.add(Message(
+        scan_id=scan_id,
+        direction="outbound",
+        message_id=send_record["message_id"],
+        from_addr=send_record["from_addr"],
+        to_addr=send_record["to_addr"],
+        cc_addr=send_record["cc"],
+        subject=send_record["subject"],
+        body_text=send_record["body_text"],
+        attachments_meta=send_record["attachments_meta"],
+    ))
+    await session.commit()
 
     if request.headers.get("hx-request"):
         return HTMLResponse(
