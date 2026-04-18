@@ -43,6 +43,22 @@ services:
       OTX_API_KEY: ${OTX_API_KEY:-}
       ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
       NVD_API_KEY: ${NVD_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
+      MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
+      IMAP_HOST: ${IMAP_HOST:-imap.gmail.com}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_USER: ${IMAP_USER:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
+      IMAP_FOLDER: ${IMAP_FOLDER:-INBOX}
+      IMAP_POLL_SECONDS: ${IMAP_POLL_SECONDS:-120}
+      IMAP_LOOKBACK_DAYS: ${IMAP_LOOKBACK_DAYS:-60}
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,4 +88,28 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  # IMAP polling daemon — fetches replies/inbound mail, matches them to scans.
+  poller:
+    image: ${APP_IMAGE}
+    restart: unless-stopped
+    command: ["python", "-m", "app.imap_poller"]
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://scan:${POSTGRES_PASSWORD}@postgres:5432/scan
+      REDIS_URL: redis://redis:6379/0
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      IMAP_HOST: ${IMAP_HOST:-imap.gmail.com}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_USER: ${IMAP_USER:-}
+      IMAP_PASSWORD: ${IMAP_PASSWORD:-}
+      IMAP_FOLDER: ${IMAP_FOLDER:-INBOX}
+      IMAP_POLL_SECONDS: ${IMAP_POLL_SECONDS:-120}
+      IMAP_LOOKBACK_DAYS: ${IMAP_LOOKBACK_DAYS:-60}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-}
+    depends_on:
+      postgres:
         condition: service_healthy
