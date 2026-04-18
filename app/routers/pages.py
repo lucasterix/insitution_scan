@@ -318,11 +318,13 @@ def _render_scan_pdf(request: Request, scan: Scan) -> bytes:
 
 def _render_offer_pdf(request: Request, scan: Scan) -> bytes:
     """Render the offer/Angebot PDF (shared between download + email)."""
+    from datetime import timedelta
     contact, offer = _contact_and_offer(scan)
     generated_at = datetime.now(timezone.utc)
+    valid_until = generated_at + timedelta(days=30)
     html = templates.get_template("offer_pdf.html").render(
         request=request, scan=scan, contact=contact, offer=offer,
-        generated_at=generated_at, format_eur=format_eur,
+        generated_at=generated_at, valid_until=valid_until, format_eur=format_eur,
     )
     from weasyprint import HTML  # lazy import
     return HTML(string=html, base_url=str(request.base_url)).write_pdf()

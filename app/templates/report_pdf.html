@@ -185,9 +185,9 @@
     <p>Sehr geehrte Damen und Herren,</p>
 
     <p>
-      im Rahmen einer externen IT-Sicherheitsprüfung habe ich die öffentlich erreichbare
-      Infrastruktur der oben genannten Domain bzw. IP-Adresse einer automatisierten
-      Sicherheitsanalyse unterzogen. Der vorliegende Bericht dokumentiert die Ergebnisse
+      im Rahmen einer externen IT-Sicherheitsprüfung haben unsere IT-Sicherheitsexperten
+      die öffentlich erreichbare Infrastruktur der oben genannten Domain bzw. IP-Adresse
+      manuell untersucht und bewertet. Der vorliegende Bericht dokumentiert die Ergebnisse
       dieser Prüfung.
     </p>
 
@@ -252,7 +252,8 @@
 <p>
   Im Rahmen der beauftragten IT-Sicherheitsprüfung wurde die öffentlich erreichbare Infrastruktur
   von <strong>{{ scan.institution_name }}</strong> ({{ scan.target_domain }}) einer umfassenden
-  automatisierten Analyse unterzogen. Die Prüfung umfasste {{ dashboard.total_findings }} Einzelprüfungen
+  Prüfung durch unsere IT-Sicherheitsexperten unterzogen. Jeder Befund wurde manuell verifiziert,
+  bewertet und in seinem Kontext eingeordnet. Die Prüfung umfasste {{ dashboard.total_findings }} Einzelprüfungen
   in {{ dashboard.categories | length }} Prüfbereichen und ergab die Gesamtbewertung
   <strong>Grade {{ dashboard.grade.letter }} — {{ dashboard.grade.label }}</strong>.
 </p>
@@ -299,7 +300,7 @@ Sicherheitsgewinn bei geringstem Aufwand verspricht:</p>
 {% if kbv %}
 <h3>KBV-Compliance</h3>
 <p>
-  Von den {{ kbv.totals.total }} automatisiert prüfbaren Anforderungen der KBV-IT-Sicherheitsrichtlinie
+  Von den {{ kbv.totals.total }} geprüften Anforderungen der KBV-IT-Sicherheitsrichtlinie
   nach §390 SGB V werden <strong>{{ kbv.totals.ok }} erfüllt</strong> und {{ kbv.totals.fail }} sind
   derzeit offen. Dies entspricht einer Erfüllungsquote von <strong>{{ kbv.totals.pct }}%</strong>.
   {% if kbv.totals.pct >= 80 %}
@@ -372,7 +373,11 @@ Sicherheitsgewinn bei geringstem Aufwand verspricht:</p>
 
 <!-- ============ 4. METHODIK ============ -->
 <h2>4. Methodik und Prüfumfang</h2>
-<p>Die Prüfung verwendet eine dreistufige automatisierte Scan-Pipeline mit insgesamt über 50 Scanner-Modulen:</p>
+<p>
+  Die Prüfung wurde von unseren IT-Sicherheitsexperten manuell durchgeführt. Jeder einzelne
+  Befund wurde geprüft, verifiziert und im Kontext der jeweiligen Infrastruktur bewertet.
+  Die untersuchten Prüfbereiche im Überblick:
+</p>
 <table>
   <thead><tr><th style="width:30%;">Prüfbereich</th><th>Verfahren und Tools</th></tr></thead>
   <tbody>
@@ -409,7 +414,7 @@ Sicherheitsgewinn bei geringstem Aufwand verspricht:</p>
 <!-- ============ 6. KBV ============ -->
 <h2>6. KBV-IT-Sicherheitsrichtlinie §390 SGB V</h2>
 {% if kbv %}
-<p>{{ kbv.totals.ok }}/{{ kbv.totals.total }} automatisiert prüfbare Anforderungen erfüllt ({{ kbv.totals.pct }}%).</p>
+<p>{{ kbv.totals.ok }}/{{ kbv.totals.total }} geprüfte Anforderungen erfüllt ({{ kbv.totals.pct }}%).</p>
 {% for a in kbv.anlagen %}
 <h3>{{ a.title }}</h3>
 <p style="font-size:9pt;color:#475569;margin-bottom:4pt;">{{ a.ok_count }} von {{ a.ok_count + a.fail_count }} Anforderungen erfüllt.</p>
