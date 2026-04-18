@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     imap_poll_seconds: int = 120
     imap_lookback_days: int = 60        # initial backfill window on first poll
 
+    # LLM for AI-drafted reply suggestions on the message detail view.
+    # llm_provider: "anthropic" or "openai" (leave empty to disable — UI falls back to a plain template).
+    llm_provider: str = "anthropic"
+    llm_api_key: str = ""
+    llm_model: str = "claude-haiku-4-5-20251001"
+    llm_max_tokens: int = 1500
+
 
 @lru_cache
 def get_settings() -> Settings:

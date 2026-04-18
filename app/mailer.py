@@ -28,6 +28,8 @@ def send_offer_email(
     reply_to: str | None = None,
     cc: str | None = None,
     attachments_meta_out: list[dict] | None = None,
+    in_reply_to: str | None = None,
+    references: str | None = None,
 ) -> dict:
     """Send a multipart/mixed email + return a record describing the send.
 
@@ -51,6 +53,12 @@ def send_offer_email(
     domain = s.mail_from_address.split("@", 1)[-1] or "zdkg.de"
     message_id = make_msgid(domain=domain)
     msg["Message-ID"] = message_id
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+    if references:
+        msg["References"] = references
+    elif in_reply_to:
+        msg["References"] = in_reply_to
     msg.set_content(body_text, subtype="plain", charset="utf-8")
 
     attachments_meta: list[dict] = []
@@ -89,4 +97,6 @@ def send_offer_email(
         "subject": subject,
         "body_text": body_text,
         "attachments_meta": attachments_meta,
+        "in_reply_to": in_reply_to,
+        "references": references or in_reply_to,
     }

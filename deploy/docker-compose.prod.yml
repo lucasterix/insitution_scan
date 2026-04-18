@@ -59,6 +59,10 @@ services:
       IMAP_FOLDER: ${IMAP_FOLDER:-INBOX}
       IMAP_POLL_SECONDS: ${IMAP_POLL_SECONDS:-120}
       IMAP_LOOKBACK_DAYS: ${IMAP_LOOKBACK_DAYS:-60}
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-haiku-4-5-20251001}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-1500}
     depends_on:
       postgres:
         condition: service_healthy

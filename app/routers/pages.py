@@ -252,6 +252,195 @@ async def message_detail(
     )
 
 
+def _build_draft_prompt(msg: Message, scan: Scan | None, thread: list[Message]) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) for the LLM to draft a reply."""
+    system = (
+        "Du bist Daniel Rupp, Geschäftsführer der Advanced Analytics GmbH (Marke: ZDKG — Zentrum für "
+        "Digitale Kommunikation und Governance), einem IT-Sicherheits- und Compliance-Beratungsunternehmen "
+        "in Göttingen. Du antwortest professionell, höflich und in präzisem Deutsch mit Sie-Form auf "
+        "E-Mails von Kunden und Interessenten — meistens Medizinische Versorgungszentren, Arztpraxen und "
+        "regulierte Institutionen.\n\n"
+        "Deine Antworten folgen diesen Regeln:\n"
+        "- Nie fachliche Dinge erfinden: wenn der Kunde konkrete Fragen stellt die du ohne Mehr-Infos "
+        "nicht beantworten kannst, biete ein kurzes Gespräch (Telefon oder Videocall) an.\n"
+        "- Halte Antworten kompakt (3–6 Absätze), keine Floskeln.\n"
+        "- Grußformel am Ende: 'Mit freundlichen Grüßen\\nDaniel Rupp\\nAdvanced Analytics GmbH — ZDKG'.\n"
+        "- Wenn ein Scan-Bericht oder Angebot erwähnt werden soll, nenne ihn nur wenn der Kontext "
+        "das hergibt — keine halluzinierten Preise oder Termine.\n"
+        "- Ausgabeformat: reiner Mail-Text, keine Markdown-Formatierung, keine ```-Fences, keine Präambel.\n"
+        "- Schreibe direkt den Mail-Body; keine 'Hier ist der Entwurf:'-Einleitung."
+    )
+
+    scan_context = ""
+    if scan:
+        scan_context = (
+            f"Zugehöriger Scan:\n"
+            f"  Institution: {scan.institution_name}\n"
+            f"  Domain:      {scan.target_domain}\n"
+            f"  Status:      {scan.status}\n"
+        )
+        try:
+            findings = (scan.result or {}).get("findings") or []
+            sev_counts: dict[str, int] = {}
+            for f in findings:
+                sev_counts[f.get("severity", "info")] = sev_counts.get(f.get("severity", "info"), 0) + 1
+            if sev_counts:
+                parts = [f"{v} {k}" for k, v in sorted(sev_counts.items())]
+                scan_context += f"  Befunde:     {', '.join(parts)}\n"
+            # Include top 5 titles — they often relate to what the customer is asking about.
+            top = [f for f in findings if f.get("severity") in ("critical", "high")][:5]
+            if top:
+                scan_context += "  Top-Befunde:\n"
+                for f in top:
+                    scan_context += f"    - [{f.get('severity')}] {f.get('title')}\n"
+        except Exception:  # noqa: BLE001
+            pass
+
+    thread_context = ""
+    if thread:
+        thread_context = "\nBisheriger E-Mail-Verlauf (älteste zuerst):\n"
+        for t in thread[-4:]:  # last 4 messages for context
+            if t.id == msg.id:
+                continue
+            direction_label = "WIR schrieben" if t.direction == "outbound" else f"KUNDE ({t.from_addr}) schrieb"
+            body_snip = (t.body_text or "")[:800]
+            thread_context += (
+                f"\n--- {direction_label} am {t.received_at.strftime('%d.%m.%Y %H:%M') if t.received_at else '?'} "
+                f"zum Thema '{t.subject or ''}':\n{body_snip}\n"
+            )
+
+    user_prompt = (
+        f"{scan_context}{thread_context}\n"
+        f"Aktuelle Mail des Kunden (zu beantworten):\n"
+        f"  Von: {msg.from_addr}\n"
+        f"  Betreff: {msg.subject or ''}\n"
+        f"  Zeitpunkt: {msg.received_at.strftime('%d.%m.%Y %H:%M') if msg.received_at else ''}\n\n"
+        f"{(msg.body_text or '(kein Text)')[:4000]}\n\n"
+        f"Schreibe jetzt den Antwort-Mail-Text."
+    )
+    return system, user_prompt
+
+
+def _fallback_draft(msg: Message, scan: Scan | None) -> str:
+    """Plain template when LLM is off or errors out."""
+    greeting = "Sehr geehrte Damen und Herren"
+    if msg.from_addr:
+        greeting = f"Sehr geehrte(r) {msg.from_addr.split('@')[0].replace('.', ' ').title()}"
+    return (
+        f"{greeting},\n\n"
+        "vielen Dank für Ihre Nachricht. Wir werden uns umgehend mit Ihrem Anliegen "
+        "beschäftigen und melden uns mit einer Antwort zurück.\n\n"
+        "Bei Rückfragen erreichen Sie uns jederzeit unter +49 176 43677735 "
+        "oder per Antwort auf diese Mail.\n\n"
+        "Mit freundlichen Grüßen\n"
+        "Daniel Rupp\n"
+        "Advanced Analytics GmbH — ZDKG"
+    )
+
+
+@router.post("/messages/{message_id}/draft-reply", response_class=HTMLResponse)
+async def draft_reply(
+    request: Request, message_id: str, session: AsyncSession = Depends(get_session)
+) -> HTMLResponse:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    msg = await session.get(Message, message_id)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
+    if msg.direction != "inbound":
+        raise HTTPException(status_code=400, detail="Antworten nur auf eingehende Mails")
+
+    scan = await session.get(Scan, msg.scan_id) if msg.scan_id else None
+    # Thread context: same scan OR same In-Reply-To chain.
+    thread: list[Message] = []
+    if scan:
+        q = select(Message).where(Message.scan_id == scan.id).order_by(Message.received_at.asc())
+        res = await session.execute(q)
+        thread = list(res.scalars().all())
+
+    from app import llm
+    try:
+        if llm.is_enabled():
+            system, user_prompt = _build_draft_prompt(msg, scan, thread)
+            draft = llm.draft(system, user_prompt)
+            if not draft.strip():
+                draft = _fallback_draft(msg, scan)
+        else:
+            draft = _fallback_draft(msg, scan)
+    except Exception as e:  # noqa: BLE001
+        draft = _fallback_draft(msg, scan) + f"\n\n[Hinweis: KI-Entwurf fehlgeschlagen — {type(e).__name__}]"
+
+    # Return a JSON-safe text payload. The UI swaps this straight into the textarea value.
+    return HTMLResponse(draft)
+
+
+@router.post("/messages/{message_id}/send-reply")
+async def send_reply(
+    request: Request,
+    message_id: str,
+    subject: str = Form(...),
+    body: str = Form(...),
+    cc: str = Form(""),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    msg = await session.get(Message, message_id)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
+    if msg.direction != "inbound" or not msg.from_addr:
+        raise HTTPException(status_code=400, detail="Antworten nur auf eingehende Mails mit Absender")
+
+    from app import mailer
+    if not mailer.is_enabled():
+        raise HTTPException(status_code=503, detail="SMTP nicht konfiguriert")
+
+    # Thread headers: point In-Reply-To at the original Message-ID, append to References.
+    refs = (msg.references or "") + (" " + msg.message_id if msg.message_id else "")
+    refs = refs.strip() or None
+
+    try:
+        rec = mailer.send_offer_email(
+            to_email=msg.from_addr,
+            subject=subject,
+            body_text=body,
+            attachments=[],
+            cc=cc or None,
+            in_reply_to=msg.message_id,
+            references=refs,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"SMTP-Fehler: {type(e).__name__}: {e}")
+
+    session.add(Message(
+        scan_id=msg.scan_id,
+        direction="outbound",
+        message_id=rec["message_id"],
+        in_reply_to=rec["in_reply_to"],
+        references=rec["references"],
+        from_addr=rec["from_addr"],
+        to_addr=rec["to_addr"],
+        cc_addr=rec["cc"],
+        subject=rec["subject"],
+        body_text=rec["body_text"],
+    ))
+    await session.commit()
+
+    if request.headers.get("hx-request"):
+        return HTMLResponse(
+            '<div class="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-900">'
+            f'Antwort an {msg.from_addr} gesendet.'
+            '</div>'
+        )
+    # Redirect back to the scan if we have one, else inbox.
+    target = f"/scans/{msg.scan_id}" if msg.scan_id else "/inbox"
+    return RedirectResponse(url=target, status_code=303)
+
+
 @router.post("/inbox/poll")
 async def inbox_poll(
     request: Request, session: AsyncSession = Depends(get_session)
