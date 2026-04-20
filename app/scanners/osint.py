@@ -11,6 +11,7 @@ import dns.resolver
 import httpx
 import tldextract
 
+from app.config import get_settings
 from app.integrations import abuseipdb, otx, shodan
 from app.integrations.ssllabs import SSLLabsClient, grade_to_severity
 from app.scanners.banner_grab import check_banners
@@ -656,12 +657,51 @@ def run_osint_scan(
         if on_progress:
             on_progress(label, progress)
 
+    # Cost/runaway guards (inspired by pentagi's per-agent tool-call limits).
+    _settings = get_settings()
+    _module_timeout_s = int(_settings.scan_module_timeout_seconds or 0)
+    _total_budget_s = int(_settings.scan_total_budget_seconds or 0)
+
     def run(fn, *args, **kwargs):
-        """Run a scanner module with timing + error isolation."""
-        start = _time.monotonic()
+        """Run a scanner module with timing, error isolation, per-module
+        timeout, and global scan budget enforcement.
+
+        If the total scan budget is already exhausted, the module is skipped
+        (not executed) and marked as such in scanner_errors — remaining
+        pipeline modules also skip, so the scan closes gracefully.
+        """
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
         name = getattr(fn, "__name__", str(fn))
+
+        # Total-budget gate: stop running new modules once the combined
+        # per-module elapsed time passes the budget.
+        if _total_budget_s > 0:
+            spent = sum((result.metadata.get("timing") or {}).values())
+            if spent > _total_budget_s:
+                result.metadata.setdefault("scanner_errors", []).append({
+                    "module": name,
+                    "error": f"skipped: total-scan budget {_total_budget_s}s exceeded ({spent:.0f}s spent)",
+                })
+                result.metadata["timing"][name] = 0.0
+                return
+
+        start = _time.monotonic()
         try:
-            fn(*args, **kwargs)
+            if _module_timeout_s > 0:
+                # ThreadPoolExecutor + fut.result(timeout) — the worker thread
+                # can't be force-killed in pure Python, but it stops blocking us
+                # and the next module starts immediately.
+                with ThreadPoolExecutor(max_workers=1) as _ex:
+                    _fut = _ex.submit(fn, *args, **kwargs)
+                    try:
+                        _fut.result(timeout=_module_timeout_s)
+                    except _FutTimeout:
+                        result.metadata.setdefault("scanner_errors", []).append({
+                            "module": name,
+                            "error": f"timeout after {_module_timeout_s}s — module aborted",
+                        })
+            else:
+                fn(*args, **kwargs)
         except Exception as e:  # noqa: BLE001
             result.metadata.setdefault("scanner_errors", []).append({
                 "module": name, "error": f"{type(e).__name__}: {e}"

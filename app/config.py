@@ -52,6 +52,20 @@ class Settings(BaseSettings):
     llm_model: str = "claude-haiku-4-5-20251001"
     llm_max_tokens: int = 1500
 
+    # Cost / runaway guards (adapted from pentagi's tool-call limits).
+    # Per-module timeout: any single scanner module that runs longer than
+    # this is aborted; remaining modules continue. 0 = disabled.
+    scan_module_timeout_seconds: int = 180
+    # Total scan budget: once the per-module timings add up beyond this,
+    # the pipeline stops running further modules and closes the scan with
+    # whatever it has. 0 = disabled. Deep+aggressive scans can take 30min
+    # so default to 50min — generous but protects from runaway.
+    scan_total_budget_seconds: int = 3000
+    # LLM cost guards — tokens used are counted in Redis per scan and per day.
+    # Rejects further drafts and falls back to the plain template once exceeded.
+    llm_budget_tokens_per_scan: int = 60000   # ~30 drafts @ ~2000 avg
+    llm_budget_tokens_per_day: int = 500000   # global safety net
+
 
 @lru_cache
 def get_settings() -> Settings:

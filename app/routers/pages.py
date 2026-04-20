@@ -369,11 +369,17 @@ async def draft_reply(
     try:
         if llm.is_enabled():
             system, user_prompt = _build_draft_prompt(msg, scan, thread)
-            draft = llm.draft(system, user_prompt)
+            draft = llm.draft(system, user_prompt, scan_id=msg.scan_id)
             if not draft.strip():
                 draft = _fallback_draft(msg, scan)
         else:
             draft = _fallback_draft(msg, scan)
+    except llm.BudgetExceeded as e:
+        draft = (
+            _fallback_draft(msg, scan)
+            + f"\n\n[Hinweis: KI-Entwurf deaktiviert — {e}. Sie können dennoch "
+            "manuell antworten.]"
+        )
     except Exception as e:  # noqa: BLE001
         draft = _fallback_draft(msg, scan) + f"\n\n[Hinweis: KI-Entwurf fehlgeschlagen — {type(e).__name__}]"
 
