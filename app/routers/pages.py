@@ -505,12 +505,34 @@ async def delete_scan(
 
 
 def _render_scan_pdf(request: Request, scan: Scan) -> bytes:
-    """Render the main scan report PDF (shared between download + email)."""
+    """Render the main scan report PDF (shared between download + email).
+
+    Also runs the 3-agent AI pipeline (Enricher → Reporter → Adviser) to
+    produce the Management-Zusammenfassung. Result is cached in Redis by
+    findings-hash, so regenerating the PDF for the same scan doesn't
+    re-burn tokens.
+    """
     kbv = build_kbv_summary(scan.result)
     dashboard = build_dashboard(scan.result)
     generated_at = datetime.now(timezone.utc)
+
+    # AI-authored executive summary (nullable — template falls back to plain text).
+    from app.compliance.report_ai import generate_executive_summary
+    ai_summary = None
+    try:
+        ai_summary = generate_executive_summary(
+            scan_id=scan.id,
+            institution_name=scan.institution_name or "",
+            target_domain=scan.target_domain,
+            findings=list((scan.result or {}).get("findings") or []),
+            result=scan.result,
+        )
+    except Exception:  # noqa: BLE001 — never fail PDF generation on AI error
+        ai_summary = None
+
     html = templates.get_template("report_pdf.html").render(
-        request=request, scan=scan, kbv=kbv, dashboard=dashboard, generated_at=generated_at
+        request=request, scan=scan, kbv=kbv, dashboard=dashboard,
+        generated_at=generated_at, ai_summary=ai_summary,
     )
     from weasyprint import HTML  # lazy import
     return HTML(string=html, base_url=str(request.base_url)).write_pdf()

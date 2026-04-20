@@ -249,6 +249,14 @@
 <h2>1. Management-Zusammenfassung</h2>
 
 {% if dashboard and dashboard.has_data %}
+{# AI-authored summary takes precedence when available. Pipeline is
+   Enricher → Reporter → Adviser with per-scan token budget. Falls back to
+   the deterministic template text below when disabled/budget-exhausted. #}
+{% if ai_summary %}
+  {% for para in ai_summary.split('\n\n') %}
+    {% if para.strip() %}<p>{{ para.strip() }}</p>{% endif %}
+  {% endfor %}
+{% else %}
 <p>
   Im Rahmen der beauftragten IT-Sicherheitsprüfung wurde die öffentlich erreichbare Infrastruktur
   von <strong>{{ scan.institution_name }}</strong> ({{ scan.target_domain }}) einer umfassenden
@@ -279,6 +287,12 @@
   Befunde und kleinere Optimierungspotenziale festgestellt.
   {% endif %}
 </p>
+{% endif %}
+
+{# Scalar KPI + facts block shown regardless of which summary variant was used. #}
+{% set crit = dashboard.counts.get('critical', 0) %}
+{% set high = dashboard.counts.get('high', 0) %}
+{% set med = dashboard.counts.get('medium', 0) %}
 
 <div class="kpi-grid">
   <div class="kpi-card sev-critical"><div class="num">{{ crit }}</div><div class="lbl">Kritisch</div></div>
