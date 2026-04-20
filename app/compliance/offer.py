@@ -146,27 +146,124 @@ def _hours_for_finding(finding_id: str, severity: str) -> float:
     return SEVERITY_DEFAULT_HOURS.get((severity or "").lower(), 0.0)
 
 
+# Findings that describe *synthesis* or *reputation* rather than a distinct
+# piece of remediation work — they get fully covered by other line items.
+# Dropped from the offer so we don't double-bill.
+DROP_FROM_OFFER_PREFIXES: tuple[str, ...] = (
+    "deep.exploit_chain.",    # narrates chains of already-priced issues
+    "abuseipdb.",             # reputation signal, no fix work
+    "otx.",                   # threat-intel signal, no fix work
+    "server.shared_hosting.", # observation, not a finding to fix
+    "banner.version.",        # covered by the related CVE/EOL line
+    "tech.server_version_disclosed",  # subsumed by HSTS/header hygiene
+    "tech.generator_disclosed",
+    "dns.brute_force_new_subs",  # info discovery, not a fix
+)
+
+# Firewall findings that describe the same root cause. If any of these co-fires
+# with a higher-priority peer, the lower-priority ones are dropped from the
+# offer (kept in the report; just not billed twice).
+FIREWALL_SIBLINGS: dict[str, tuple[str, ...]] = {
+    # key = keep-this-if-present ; value = drop-these-if-key-present
+    "firewall.no_payload_blocked":  ("firewall.no_waf_detected",),
+    "firewall.waf_permissive":      ("firewall.no_waf_detected",),
+    "firewall.partial_block":       ("firewall.no_waf_detected",),
+}
+
+
+def _bundle_cve_findings(raw_items: list[dict], findings: list[dict]) -> list[dict]:
+    """Collapse per-CVE lines into one 'patch component X (N CVE)' item per
+    product. A real-world patch covers all CVEs of a product in one shot —
+    billing each CVE separately inflates the quote and looks unserious.
+
+    Returns the new item list (non-CVE items untouched, CVE items bundled).
+    """
+    # Build an index of component → list of finding-ids
+    component_to_fids: dict[str, list[str]] = {}
+    component_worst_sev: dict[str, str] = {}
+    sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+    for f in findings:
+        fid = f.get("id") or ""
+        if not fid.startswith("vuln."):
+            continue
+        ev = f.get("evidence") or {}
+        comp = (ev.get("component") or "").strip().lower()
+        if not comp:
+            continue
+        component_to_fids.setdefault(comp, []).append(fid)
+        cur = component_worst_sev.get(comp, "info")
+        new = (f.get("severity") or "info").lower()
+        if sev_rank.get(new, 9) < sev_rank.get(cur, 9):
+            component_worst_sev[comp] = new
+
+    # Components with 2+ CVEs benefit from bundling
+    to_bundle: dict[str, list[str]] = {c: fids for c, fids in component_to_fids.items() if len(fids) >= 2}
+    if not to_bundle:
+        return raw_items
+
+    bundled_fids: set[str] = {fid for fids in to_bundle.values() for fid in fids}
+    kept = [it for it in raw_items if it["id"] not in bundled_fids]
+
+    # One bundled line per component — hours = single patch job (3h for
+    # web apps / 4h for OS-level components). We cap the total so many
+    # CVEs don't multiply.
+    for comp, fids in to_bundle.items():
+        is_os = any(k in comp for k in ("openssh", "nginx", "apache", "postfix", "kernel", "bind"))
+        bundled_hours = 4.0 if is_os else 3.0
+        worst = component_worst_sev.get(comp, "high")
+        kept.append({
+            "id": f"bundle.vuln.{comp.replace(' ', '_')}",
+            "title": f"{comp.capitalize()} patchen ({len(fids)} bekannte CVE{'s' if len(fids) > 1 else ''})",
+            "severity": worst,
+            "category": "Known CVE",
+            "hours": bundled_hours,
+            "net_eur": 0.0,  # recomputed below with the rate
+            "_bundle_from": fids,
+        })
+
+    return kept
+
+
+def _drop_sibling_duplicates(raw_items: list[dict]) -> list[dict]:
+    """Apply FIREWALL_SIBLINGS + DROP_FROM_OFFER_PREFIXES rules to the items list."""
+    present_ids = {it["id"] for it in raw_items}
+    drop_ids: set[str] = set()
+    for keep_id, drops in FIREWALL_SIBLINGS.items():
+        if keep_id in present_ids:
+            for d in drops:
+                drop_ids.add(d)
+    return [
+        it for it in raw_items
+        if it["id"] not in drop_ids
+        and not any(it["id"].startswith(p) for p in DROP_FROM_OFFER_PREFIXES)
+    ]
+
+
 def build_offer(result: dict, hourly_rate_eur: float | None = None) -> dict:
     """Aggregate findings → hours → euro. Never raises on unknown shapes.
 
     Returns a dict suitable for Jinja rendering. When there's nothing to quote
     (empty findings or only INFO), the caller can still display a "keine
     Handlungsempfehlung notwendig" note using the returned totals.
+
+    Bundling rules (so the quote reads like a serious remediation offer, not
+    a bag of dedup'd vulnerabilities):
+      · multiple CVEs on the same product → ONE "patch {product}" line
+      · exploit-chain / reputation / version-banner items → dropped (work is
+        covered by the underlying issues that already price)
+      · redundant firewall findings → keep the most-specific, drop the
+        generic 'no WAF' sibling
     """
     rate = float(hourly_rate_eur or DEFAULT_HOURLY_RATE_EUR)
 
     findings = list(result.get("findings") or [])
     items: list[dict] = []
-    by_severity: dict[str, dict] = {
-        k: {"count": 0, "hours": 0.0, "net": 0.0}
-        for k in ("critical", "high", "medium", "low", "info")
-    }
 
     for f in findings:
         fid = f.get("id") or ""
         sev = (f.get("severity") or "info").lower()
         hours = _hours_for_finding(fid, sev)
-        net = round(hours * rate, 2)
 
         items.append({
             "id": fid,
@@ -174,13 +271,27 @@ def build_offer(result: dict, hourly_rate_eur: float | None = None) -> dict:
             "severity": sev,
             "category": f.get("category") or "",
             "hours": hours,
-            "net_eur": net,
+            "net_eur": round(hours * rate, 2),
         })
 
+    # Apply bundling + drop rules.
+    items = _bundle_cve_findings(items, findings)
+    items = _drop_sibling_duplicates(items)
+    # Recompute net for all items now that the list is final.
+    for it in items:
+        it["net_eur"] = round(it["hours"] * rate, 2)
+
+    # Aggregate by severity after bundling — that's what the customer sees.
+    by_severity: dict[str, dict] = {
+        k: {"count": 0, "hours": 0.0, "net": 0.0}
+        for k in ("critical", "high", "medium", "low", "info")
+    }
+    for it in items:
+        sev = it["severity"]
         if sev in by_severity:
             by_severity[sev]["count"] += 1
-            by_severity[sev]["hours"] = round(by_severity[sev]["hours"] + hours, 2)
-            by_severity[sev]["net"] = round(by_severity[sev]["net"] + net, 2)
+            by_severity[sev]["hours"] = round(by_severity[sev]["hours"] + it["hours"], 2)
+            by_severity[sev]["net"] = round(by_severity[sev]["net"] + it["net_eur"], 2)
 
     total_hours = round(sum(it["hours"] for it in items), 2)
     net = round(total_hours * rate, 2)
@@ -205,7 +316,8 @@ def build_offer(result: dict, hourly_rate_eur: float | None = None) -> dict:
 
 
 def format_eur(value: float) -> str:
-    """German EUR formatting: 1.234,56 €"""
+    """German EUR formatting: 1.234,56 €. Uses a non-breaking space so the
+    amount + symbol never wraps across two lines in a narrow column."""
     s = f"{value:,.2f}"
     s = s.replace(",", "X").replace(".", ",").replace("X", ".")
-    return f"{s} €"
+    return f"{s}\u00a0€"

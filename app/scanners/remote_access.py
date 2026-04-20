@@ -158,15 +158,22 @@ def check_remote_access(domain: str, result: ScanResult, step: Callable[[str, in
         if r.status_code not in (200, 401, 403):
             return None
 
-        if r.status_code in (401, 403):
-            return {"host": host, "path": path, "tool": tool, "status": r.status_code,
-                    "sev": sev, "desc": desc, "cves": cves}
-
         body = r.text[:8192] if "text" in r.headers.get("content-type", "").lower() else ""
-        if is_catchall(body, baselines):
-            return None
-        if not any(h in body.lower() for h in hints):
-            return None
+        server = (r.headers.get("server") or "").lower()
+        www_auth = (r.headers.get("www-authenticate") or "").lower()
+
+        # For 200 responses: must be non-catchall AND contain a tool fingerprint.
+        # For 401/403: must have fingerprint in body OR Server OR WWW-Authenticate —
+        # otherwise a generic framework auth page (FastAPI 401, nginx 403) false-matches.
+        if r.status_code == 200:
+            if is_catchall(body, baselines):
+                return None
+            if not any(h in body.lower() for h in hints):
+                return None
+        else:
+            haystack = body.lower() + " " + server + " " + www_auth
+            if not any(h in haystack for h in hints):
+                return None
 
         return {"host": host, "path": path, "tool": tool, "status": r.status_code,
                 "sev": sev, "desc": desc, "cves": cves,

@@ -165,10 +165,13 @@
     }
     .summary .metric .num {
       font-family: "Aptos Display", "Aptos", serif;
-      font-size: 24pt;
+      font-size: 22pt;
       font-weight: 400;
       color: #064e3b;
       line-height: 1;
+      white-space: nowrap;        /* keep "6.327,83 €" on one line */
+      overflow-wrap: normal;
+      word-break: keep-all;
     }
     .summary .metric .lbl {
       font-size: 7.5pt;
@@ -212,14 +215,16 @@
       display: block;
     }
 
-    /* Totals block */
+    /* Totals block — keep it on one page with the closing */
     .totals {
       margin-top: 10pt;
       margin-left: 45%;
       width: 55%;
       border-collapse: collapse;
       font-size: 10pt;
+      page-break-inside: avoid;
     }
+    .close { page-break-inside: avoid; }
     .totals td {
       padding: 6pt 8pt;
       border-bottom: 0.3pt solid #e7e5e4;
