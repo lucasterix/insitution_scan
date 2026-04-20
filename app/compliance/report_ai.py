@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 
 from app import llm
 from app.compliance.dashboard import build_dashboard
@@ -65,6 +66,36 @@ def _store(key: str, value: str) -> None:
 
 def _truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Unwrap ```json ... ``` / ``` ... ``` fences that some models insist on
+    adding even when told not to. Returns the inside of the first fenced block
+    if fences exist, otherwise the text unchanged."""
+    m = re.search(r"```(?:json)?\s*(.+?)```", text, flags=re.DOTALL)
+    return m.group(1).strip() if m else text.strip()
+
+
+def _flatten_markdown(text: str) -> str:
+    """Defensive post-processor for the Reporter/Adviser output.
+
+    The system prompts forbid headings / bullets / markdown, but models
+    occasionally slip. This removes the obvious markers so the PDF always
+    shows clean prose: `**bold**` → `bold`, `### Heading` → `Heading`,
+    list bullets → regular sentences, and tightens double-blank-lines.
+    """
+    # Strip leading #-heading markers
+    text = re.sub(r"(?m)^\s*#{1,6}\s+", "", text)
+    # Strip bold/italic markup: **x** / __x__ / *x*
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
+    # Convert bullet lines to plain lines
+    text = re.sub(r"(?m)^\s*[-*•]\s+", "", text)
+    text = re.sub(r"(?m)^\s*\d+[.)]\s+", "", text)
+    # Collapse excess blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
 
 
 # ---------- Stage 1: Enricher ----------
@@ -125,9 +156,10 @@ def enrich(institution_name: str, target_domain: str, findings: list[dict], dash
     }, ensure_ascii=False, indent=2)
 
     text = llm.draft(ENRICHER_SYSTEM, user_prompt, max_tokens=700, temperature=0.2, scan_id=scan_id)
-    # Try to parse JSON; on failure return a minimal dict so Reporter still works.
+    # Some models wrap JSON in ```json fences despite the prompt — unwrap first.
+    cleaned = _strip_markdown_fences(text)
     try:
-        return json.loads(text)
+        return json.loads(cleaned)
     except json.JSONDecodeError:
         log.warning("Enricher returned non-JSON, using fallback. Got: %s", text[:200])
         return {"worst_severity": max(sev_counts, key=lambda k: sev_order.get(k, 9), default="info")}
@@ -140,17 +172,27 @@ REPORTER_SYSTEM = (
     "Du bist der Reporter-Agent. Du schreibst die Management-Zusammenfassung eines "
     "IT-Sicherheits-Prüfberichts im Namen von Daniel Rupp (Advanced Analytics GmbH / ZDKG). "
     "Zielpublikum: Geschäftsführung einer Arztpraxis, eines MVZ oder KMU — nicht-technisch.\n\n"
-    "REGELN:\n"
-    "- 2-3 Absätze, deutsches Sie-Form, ruhiger seriöser Ton.\n"
-    "- Keine CVE-Nummern, keine konkreten Versionsnummern, keine spezifischen Zahlen außer "
-    "jenen die im Input stehen.\n"
-    "- Kein Marketing-Sprech, kein Alarmismus.\n"
-    "- Keine Floskeln wie 'wie Sie wissen', 'im heutigen digitalen Zeitalter'.\n"
-    "- Struktur: (1) was wurde geprüft + Gesamteindruck, (2) was sind die wichtigsten Handlungs-"
-    "bereiche, (3) Empfehlung zur Priorisierung.\n"
-    "- Output: reiner Fließtext, KEINE Überschriften, KEIN Markdown, KEINE Listen. "
-    "Absätze getrennt durch Leerzeile.\n"
-    "- Keine Grußformel (der Bericht hat an anderer Stelle schon eine)."
+    "INHALT:\n"
+    "- Struktur: (1) was wurde geprüft + Gesamteindruck, (2) was sind die wichtigsten "
+    "Handlungsbereiche, (3) Empfehlung zur Priorisierung.\n"
+    "- Zielumfang: 2 bis 3 Absätze, jeder etwa 60–90 Wörter.\n"
+    "- Deutsches Sie-Form. Ruhiger, seriöser Ton. Kein Marketing-Sprech, kein Alarmismus.\n"
+    "- Keine CVE-Nummern, keine konkreten Versionsnummern, keine Zahlen außer jenen die "
+    "im Enricher-Output stehen.\n"
+    "- Keine Floskeln ('im heutigen digitalen Zeitalter', 'wie Sie wissen').\n\n"
+    "FORMAT (WICHTIG — sonst landet es im Reject-Filter):\n"
+    "- Ausgabe ist REINER FLIESSTEXT für Absatz-Rendering in einem PDF.\n"
+    "- Verwende KEINE Markdown-Syntax: keine **Fettschrift**, keine *Kursiv*, keine __unterstriche__.\n"
+    "- Verwende KEINE Überschriften ('**Wesentliche Befunde:**', '### Empfehlungen', "
+    "'Zusammenfassung:') — NICHTS davon.\n"
+    "- Verwende KEINE Bulletpoints, Aufzählungszeichen, Nummerierungen, Doppelpunkte-gefolgt-von-Liste.\n"
+    "- Verwende KEINE Code-Fences (```), keine HTML-Tags.\n"
+    "- Absätze sind durch eine Leerzeile getrennt (zwei \\n).\n"
+    "- Keine Grußformel.\n\n"
+    "Beispiel für korrekten Output:\n"
+    "Im Rahmen der Sicherheitsprüfung wurde die öffentlich erreichbare Infrastruktur …\n\n"
+    "Die Analyse zeigt mehrere Handlungsfelder, die zeitnah adressiert werden sollten …\n\n"
+    "Wir empfehlen, die als kritisch eingestuften Punkte zuerst zu beheben …"
 )
 
 
@@ -170,14 +212,19 @@ def report(enrichment: dict, institution_name: str, target_domain: str, *, scan_
 
 ADVISER_SYSTEM = (
     "Du bist der Adviser-Agent. Du bekommst einen Management-Zusammenfassungs-Entwurf plus "
-    "die Original-Findings und den Enricher-Output. Deine Aufgabe ist **Audit + Revision**:\n\n"
+    "die Original-Findings und den Enricher-Output. Deine Aufgabe: Audit + Revision.\n\n"
+    "PRÜFE:\n"
     "1. Enthält der Entwurf Zahlen/CVE/Versionen/Aussagen die NICHT aus den Findings oder "
     "dem Enricher-Output belegt sind? → Entferne sie oder formuliere vage.\n"
-    "2. Ton zu alarmistisch, zu markenmäßig, zu schwurbelig? → Glätte.\n"
-    "3. Passt die Priorisierung zu den tatsächlichen Schweregraden?\n"
-    "4. Sie-Form konsequent?\n\n"
+    "2. Enthält der Entwurf Markdown-Syntax (**Fett**, ### Heading, Bullets mit - oder *, "
+    "Doppelpunkte gefolgt von Listen)? → Ersetze durch reinen Fließtext in Absätzen.\n"
+    "3. Ton zu alarmistisch, zu markenmäßig, zu schwurbelig? → Glätte.\n"
+    "4. Passt die Priorisierung zu den tatsächlichen Schweregraden?\n"
+    "5. Sie-Form konsequent?\n\n"
+    "FORMAT: reiner Fließtext. KEIN Markdown. KEINE Überschriften. KEINE Bulletpoints. "
+    "Absätze getrennt durch Leerzeile.\n\n"
     "Gib NUR die finale, korrigierte Fassung zurück — kein Kommentar, kein 'Hier ist die "
-    "Revision:'. Wenn der Entwurf in Ordnung ist, gib ihn 1:1 zurück."
+    "Revision:'. Wenn der Entwurf bereits einwandfrei ist, gib ihn 1:1 zurück."
 )
 
 
@@ -237,7 +284,10 @@ def generate_executive_summary(
         log.warning("report_ai failed: %s: %s", type(e).__name__, e)
         return None
 
-    final = (final or "").strip()
+    # Defensive post-process — prompts forbid markdown/headings/bullets, but
+    # models sometimes slip. We flatten any that got through so the PDF prose
+    # is always clean.
+    final = _flatten_markdown((final or "").strip())
     if final:
         _store(key, final)
     return final or None
