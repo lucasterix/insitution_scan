@@ -1,132 +1,179 @@
 {% extends "base.html" %}
-{% block title %}MVZ Security Scan – IT-Sicherheitsprüfung{% endblock %}
+{% block title %}Übersicht – MVZ Security Scan{% endblock %}
 {% block content %}
 
-{# ============ HERO ============ #}
-<section class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 text-white mb-10">
-  <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(circle at 20% 50%, rgba(255,255,255,0.3) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(255,255,255,0.2) 0%, transparent 50%);"></div>
-  <div class="relative px-8 py-14 md:py-20 max-w-4xl">
-    <div class="inline-flex items-center gap-2 px-3 py-1 bg-white/10 border border-white/20 rounded-full text-xs font-medium text-emerald-100 mb-6 backdrop-blur">
-      <span class="w-2 h-2 rounded-full bg-emerald-300 animate-pulse"></span>
-      Automatisiertes Self-Assessment nach KBV §390 SGB V
+{# =================== STATS ROW =================== #}
+<section class="mb-5">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900">Scan-Übersicht</h1>
+      <p class="text-sm text-slate-500">
+        {% if stats %}
+          {{ stats.total }} Scans gesamt · {{ stats.today }} in 24 h ·
+          Ø {{ (stats.avg_duration_s // 60) }}:{{ '%02d'|format(stats.avg_duration_s % 60) }} min Laufzeit
+        {% else %}Noch keine Scans.{% endif %}
+      </p>
     </div>
-    <h1 class="text-4xl md:text-5xl font-bold leading-tight mb-5">
-      Die Sicherheits-<br>Ist-Aufnahme deines MVZ.
-    </h1>
-    <p class="text-lg text-emerald-50 mb-8 max-w-2xl leading-relaxed">
-      Mehr als 25 Scanner-Module prüfen deine Domain passiv und aktiv
-      gegen die KBV-IT-Sicherheitsrichtlinie, DSGVO, Healthcare-Spezifika
-      (KIM, TI-Konnektor, PVS) und bekannte CVEs. Ergebnis: Dashboard +
-      prüffähiger PDF-Report für DSB und IT-Dienstleister.
-    </p>
-    <div class="flex flex-col sm:flex-row gap-3">
-      <a href="/scans/new"
-         class="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-white text-emerald-800 rounded-xl hover:bg-emerald-50 font-semibold shadow-lg transition">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M21 21l-4.35-4.35"/><circle cx="11" cy="11" r="8"/></svg>
-        Neuen Scan starten
+    <div class="flex items-center gap-2">
+      {% if stats and stats.unread_msgs > 0 %}
+      <a href="/inbox?unread=1"
+         class="inline-flex items-center gap-2 px-3 py-2 text-sm border border-sky-200 bg-sky-50 text-sky-900 rounded-lg hover:bg-sky-100">
+        <span class="w-2 h-2 bg-sky-500 rounded-full animate-pulse"></span>
+        {{ stats.unread_msgs }} neue Mail{{ 'en' if stats.unread_msgs > 1 else '' }}
       </a>
-      <a href="#recent"
-         class="inline-flex items-center justify-center gap-2 px-7 py-3.5 bg-white/10 border border-white/30 text-white rounded-xl hover:bg-white/20 font-medium transition backdrop-blur">
-        Bisherige Scans
+      {% endif %}
+      <a href="/scans/new" class="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium shadow-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Neuer Scan
       </a>
     </div>
   </div>
-</section>
 
-{# ============ FEATURES ============ #}
-<section class="mb-12">
-  <div class="text-center mb-8">
-    <h2 class="text-2xl font-bold text-slate-900">Was geprüft wird</h2>
-    <p class="text-slate-500 mt-2 max-w-2xl mx-auto">Jeder Scan führt diese Prüfungen automatisch durch. Deep-Scan ergänzt aktive Tests.</p>
-  </div>
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-    {% for emoji, title, desc in [
-      ('🛡️', 'KBV §390 SGB V', 'Anlagen 1–5 mit automatischem Compliance-Score und prüffähigem Bericht.'),
-      ('✉️', 'E-Mail-Sicherheit', 'SPF, DMARC, DKIM (18 Selektoren), MTA-STS, TLS-RPT, Mail-Provider-Detection.'),
-      ('🔒', 'TLS & SSL Labs', 'Deep-Grade via SSL Labs + lokale Prüfung. Zertifikat, Cipher, Protokoll-Versionen.'),
-      ('🛑', 'CVE-Abgleich', 'NVD-CPE-Lookup + CISA KEV + EPSS-Score. Bekannte Exploits sofort sichtbar.'),
-      ('🏥', 'Healthcare-spezifisch', 'KIM-DNS, TI-Konnektor-Probe, PVS-Fingerprint (TurboMed/MEDISTAR/Albis/CGM).'),
-      ('⚖️', 'DSGVO / Impressum', 'Tracker ohne Consent, Cookie-Flags, TMG-Impressum-Vollständigkeit.'),
-      ('📡', 'Angriffsfläche', 'Subdomain-Discovery, Shodan-Host-Lookup, aktiver Port-Scan (16 Ports).'),
-      ('📂', 'Exposed Files', '38 Leak-Pfade (.git, .env, Backups, SQL-Dumps, phpMyAdmin).'),
-      ('🧾', 'Metadaten-Leaks', 'PDF-/Bild-EXIF: Author, Creator, GPS-Koordinaten.'),
+  {% if stats and stats.total > 0 %}
+  <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+    {% for key, label, col in [
+      ('running',   'Aktiv',       'amber'),
+      ('queued',    'Warteschlange','slate'),
+      ('completed', 'Abgeschlossen','emerald'),
+      ('failed',    'Fehlgeschlagen','rose'),
+      ('today',     'Heute',       'sky')
     ] %}
-    <div class="group bg-white border border-slate-200 rounded-2xl p-5 hover:border-emerald-300 hover:shadow-md transition">
-      <div class="text-3xl mb-3">{{ emoji }}</div>
-      <h3 class="font-semibold text-slate-900 mb-1">{{ title }}</h3>
-      <p class="text-sm text-slate-600 leading-relaxed">{{ desc }}</p>
-    </div>
+    <a href="?status={{ key if key not in ('today',) else '' }}"
+       class="group bg-white border border-slate-200 rounded-xl px-4 py-3 hover:border-{{ col }}-300 transition block">
+      <div class="flex items-baseline justify-between">
+        <span class="text-2xl font-bold text-{{ col }}-600">{{ stats[key] }}</span>
+        <span class="w-2 h-2 rounded-full bg-{{ col }}-500 opacity-70"></span>
+      </div>
+      <div class="text-xs uppercase tracking-wide text-slate-500 mt-1 group-hover:text-slate-700">{{ label }}</div>
+    </a>
     {% endfor %}
-  </div>
-</section>
-
-{# ============ RECENT SCANS ============ #}
-<section id="recent">
-  {% if request.query_params.get('batch') %}
-  <div class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3">
-    <span class="inline-flex w-6 h-6 rounded-full bg-emerald-600 text-white items-center justify-center text-sm font-bold">✓</span>
-    <p class="text-sm text-emerald-900">
-      <strong>{{ request.query_params.get('batch') }} Scans</strong> wurden der Warteschlange hinzugefügt.
-      Sie starten automatisch nacheinander — einfach hier die Seite offen lassen oder später wiederkommen.
-    </p>
   </div>
   {% endif %}
+</section>
 
-  <div class="flex items-center justify-between mb-4">
-    <h2 class="text-2xl font-bold text-slate-900">Letzte Scans</h2>
-    <a href="/scans/new" class="text-sm text-emerald-600 hover:text-emerald-800 font-medium">+ Neuer Scan</a>
-  </div>
+{# =================== BATCH-TOAST =================== #}
+{% if request.query_params.get('batch') %}
+<div class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex items-center gap-3">
+  <span class="inline-flex w-6 h-6 rounded-full bg-emerald-600 text-white items-center justify-center text-sm font-bold">✓</span>
+  <p class="text-sm text-emerald-900">
+    <strong>{{ request.query_params.get('batch') }} Scans</strong> in der Warteschlange — laufen nacheinander.
+  </p>
+</div>
+{% endif %}
 
-  {% if not scans %}
-  <div class="bg-white border border-dashed border-slate-300 rounded-2xl p-12 text-center">
-    <div class="text-5xl mb-3">🔍</div>
-    <h3 class="font-semibold text-slate-900 mb-2">Noch keine Scans durchgeführt</h3>
-    <p class="text-slate-500 text-sm mb-5">Starte deinen ersten Scan, um die Sicherheits-Baseline deiner Domain zu ermitteln.</p>
-    <a href="/scans/new" class="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-medium shadow-sm">
-      Ersten Scan starten
-    </a>
-  </div>
-  {% else %}
-  <div class="grid gap-3">
-    {% for s in scans %}
-      {% set color = {'queued': 'slate', 'running': 'amber', 'completed': 'emerald', 'failed': 'rose'}.get(s.status, 'slate') %}
-      <div class="scan-row bg-white border border-slate-200 rounded-2xl p-5 hover:border-emerald-300 hover:shadow-md transition group flex items-center gap-4">
-        <a href="/scans/{{ s.id }}" class="flex items-center gap-4 flex-1 min-w-0">
-          <div class="w-12 h-12 rounded-xl bg-{{ color }}-100 text-{{ color }}-700 flex items-center justify-center font-bold flex-shrink-0">
-            {% if s.status == 'completed' %}✓
-            {% elif s.status == 'running' %}⚡
-            {% elif s.status == 'failed' %}✗
-            {% else %}⋯{% endif %}
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 flex-wrap">
-              <div class="font-semibold text-slate-900 truncate">{{ s.institution_name }}</div>
-              {% if s.deep_scan %}<span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-100 text-purple-700">Deep</span>{% endif %}
-              <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-{{ color }}-100 text-{{ color }}-700">{{ s.status }}</span>
-            </div>
-            <div class="text-xs text-slate-500 mt-0.5 font-mono truncate">{{ s.target_domain }}</div>
-          </div>
-          <div class="hidden sm:block text-right text-xs text-slate-500 flex-shrink-0">
-            {{ s.created_at.strftime('%d.%m.%Y') if s.created_at }}<br>
-            {{ s.created_at.strftime('%H:%M') if s.created_at }}
-          </div>
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24" class="text-slate-400 group-hover:text-emerald-600 transition flex-shrink-0"><path d="m9 18 6-6-6-6"/></svg>
-        </a>
-        <button
-          type="button"
-          hx-post="/scans/{{ s.id }}/delete"
-          hx-confirm="Diesen Scan wirklich löschen? Falls er noch läuft, wird der Job abgebrochen."
-          hx-target="closest .scan-row"
-          hx-swap="outerHTML swap:0.2s"
-          title="Scan löschen"
-          class="flex-shrink-0 w-9 h-9 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition"
-          aria-label="Scan löschen"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-        </button>
-      </div>
+{# =================== FILTERS + SEARCH =================== #}
+<section class="mb-3 flex flex-wrap items-center gap-2">
+  {% set active_tab = status_filter or 'all' %}
+  <nav class="inline-flex rounded-lg border border-slate-200 bg-white overflow-hidden text-sm">
+    {% for key, label in [('', 'Alle'), ('running', 'Aktiv'), ('queued', 'Queue'), ('completed', 'Abgeschlossen'), ('failed', 'Fehlgeschlagen')] %}
+      {% set is_active = (key == status_filter) or (not key and not status_filter) %}
+      <a href="?{% if key %}status={{ key }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+         class="px-3 py-1.5 border-r border-slate-200 last:border-r-0
+                {{ 'bg-slate-900 text-white' if is_active else 'text-slate-600 hover:bg-slate-50' }}">
+        {{ label }}
+      </a>
     {% endfor %}
+  </nav>
+
+  <form method="get" action="/" class="flex-1 min-w-[220px] max-w-xs">
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    <div class="relative">
+      <input type="text" name="q" value="{{ q or '' }}"
+             placeholder="Institution oder Domain suchen…"
+             class="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+      <svg class="absolute left-2.5 top-2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    </div>
+  </form>
+
+  <div class="ml-auto text-xs text-slate-500">
+    {% if total_matching %}{{ total_matching }} Treffer{% endif %}
   </div>
+</section>
+
+{# =================== SCAN LIST =================== #}
+<section id="recent">
+  {% if not scans %}
+    {% if q or status_filter %}
+    <div class="bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center">
+      <div class="text-3xl mb-2">🔍</div>
+      <p class="text-slate-600">Keine Scans gefunden für diesen Filter.</p>
+      <a href="/" class="mt-3 inline-block text-sm text-emerald-600 hover:text-emerald-800">Filter zurücksetzen</a>
+    </div>
+    {% else %}
+    <div class="bg-white border border-dashed border-slate-300 rounded-2xl p-12 text-center">
+      <div class="text-5xl mb-3">🔍</div>
+      <h3 class="font-semibold text-slate-900 mb-2">Noch keine Scans durchgeführt</h3>
+      <p class="text-slate-500 text-sm mb-5">Starte deinen ersten Scan, um die Sicherheits-Baseline einer Domain zu ermitteln.</p>
+      <a href="/scans/new" class="inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-medium shadow-sm">Ersten Scan starten</a>
+    </div>
+    {% endif %}
+  {% else %}
+  <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+    <ul class="divide-y divide-slate-100">
+      {% for s in scans %}
+        {% set color = {'queued': 'slate', 'running': 'amber', 'completed': 'emerald', 'failed': 'rose'}.get(s.status, 'slate') %}
+        <li class="scan-row flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
+          <a href="/scans/{{ s.id }}" class="flex items-center gap-3 flex-1 min-w-0">
+            <div class="w-10 h-10 rounded-lg bg-{{ color }}-100 text-{{ color }}-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
+              {% if s.status == 'completed' %}✓
+              {% elif s.status == 'running' %}⚡
+              {% elif s.status == 'failed' %}✗
+              {% else %}⋯{% endif %}
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-semibold text-slate-900 truncate">{{ s.institution_name }}</span>
+                {% if s.deep_scan %}<span class="px-1.5 py-0 rounded text-[9px] font-bold uppercase bg-purple-100 text-purple-700">Deep</span>{% endif %}
+                {% if s.rate_limit_test %}<span class="px-1.5 py-0 rounded text-[9px] font-bold uppercase bg-orange-100 text-orange-700">Aggressiv</span>{% endif %}
+                <span class="px-1.5 py-0 rounded text-[9px] font-bold uppercase bg-{{ color }}-100 text-{{ color }}-700">{{ s.status }}</span>
+                {% if s.status == 'running' and s.progress %}
+                  <span class="text-[10px] text-amber-700 font-mono">{{ s.progress }}%</span>
+                {% endif %}
+              </div>
+              <div class="text-xs text-slate-500 mt-0.5 font-mono truncate">{{ s.target_domain }}</div>
+            </div>
+            <div class="hidden md:block text-right text-xs text-slate-500 flex-shrink-0">
+              {{ s.created_at.strftime('%d.%m.%y %H:%M') if s.created_at }}
+            </div>
+          </a>
+          <form method="post" action="/scans/{{ s.id }}/rescan" class="flex-shrink-0"
+                title="Erneut scannen">
+            <button type="submit" class="w-8 h-8 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 flex items-center justify-center transition" aria-label="Erneut scannen">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+          </form>
+          <button
+            type="button"
+            hx-post="/scans/{{ s.id }}/delete"
+            hx-confirm="Diesen Scan wirklich löschen?"
+            hx-target="closest .scan-row"
+            hx-swap="outerHTML swap:0.2s"
+            title="Scan löschen"
+            class="flex-shrink-0 w-8 h-8 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition"
+            aria-label="Scan löschen"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/></svg>
+          </button>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  {# ---- Pagination ---- #}
+  {% if total_pages and total_pages > 1 %}
+  <nav class="mt-4 flex items-center justify-between text-sm" aria-label="Pagination">
+    <span class="text-slate-500">Seite {{ page }} von {{ total_pages }} · {{ total_matching }} Treffer</span>
+    <div class="flex gap-1">
+      {% set base = '?' + ('status=' + status_filter + '&' if status_filter else '') + ('q=' + q + '&' if q else '') %}
+      {% if page > 1 %}
+        <a href="{{ base }}page={{ page - 1 }}" class="px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">‹ Zurück</a>
+      {% endif %}
+      {% if page < total_pages %}
+        <a href="{{ base }}page={{ page + 1 }}" class="px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50">Weiter ›</a>
+      {% endif %}
+    </div>
+  </nav>
+  {% endif %}
   {% endif %}
 </section>
 

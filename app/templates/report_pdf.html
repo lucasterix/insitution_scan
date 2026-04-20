@@ -146,13 +146,50 @@
   </div>
 
   {% if dashboard and dashboard.has_data %}
-  <div class="grade-box">
-    <div class="grade-letter">{{ dashboard.grade.letter }}</div>
+  {# Donut chart + grade box combined. Donut segments are proportional to
+     severity counts; grade + label appears to the right. Pure SVG, no JS. #}
+  {% set total_for_donut = dashboard.counts.get('critical', 0) + dashboard.counts.get('high', 0) + dashboard.counts.get('medium', 0) + dashboard.counts.get('low', 0) + dashboard.counts.get('info', 0) %}
+  {% set circ = 282.74 %}
+  <div class="grade-box" style="display: flex; align-items: center; gap: 20pt;">
+    {% if total_for_donut > 0 %}
+    <svg viewBox="0 0 120 120" width="110" height="110" style="flex-shrink: 0;">
+      <circle cx="60" cy="60" r="45" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="16"/>
+      {% set running = 0 %}
+      {% for sev, col in [('critical','#dc2626'),('high','#ea580c'),('medium','#d97706'),('low','#0284c7'),('info','#94a3b8')] %}
+        {% set count = dashboard.counts.get(sev, 0) %}
+        {% if count > 0 %}
+        {% set len = (count / total_for_donut) * circ %}
+        {% set offset = -circ * (running / total_for_donut) %}
+        <circle cx="60" cy="60" r="45" fill="none" stroke="{{ col }}" stroke-width="16"
+                stroke-dasharray="{{ '%.2f'|format(len) }} {{ '%.2f'|format(circ - len) }}"
+                stroke-dashoffset="{{ '%.2f'|format(offset) }}"
+                transform="rotate(-90 60 60)"/>
+        {% set running = running + count %}
+        {% endif %}
+      {% endfor %}
+      <text x="60" y="54" text-anchor="middle" fill="white" font-family="Aptos Display, serif" font-size="22" font-weight="400">{{ total_for_donut }}</text>
+      <text x="60" y="72" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-family="Aptos, sans-serif" font-size="8" letter-spacing="1">BEFUNDE</text>
+    </svg>
+    {% endif %}
+    <div class="grade-letter" style="font-size: 52pt;">{{ dashboard.grade.letter }}</div>
     <div class="grade-info">
       <div class="label">Gesamtbewertung</div>
       <h2>{{ dashboard.grade.label }}</h2>
-      <p>{{ dashboard.grade.description }}</p>
+      <p style="font-size: 8pt; opacity: 0.85;">{{ dashboard.grade.description }}</p>
     </div>
+  </div>
+
+  {# Severity legend under the donut for quick orientation #}
+  <div style="display: flex; gap: 6pt; margin-top: 8pt; font-size: 7.5pt; color: rgba(255,255,255,0.85); flex-wrap: wrap;">
+    {% for sev, label, col in [('critical','Kritisch','#dc2626'),('high','Hoch','#ea580c'),('medium','Mittel','#d97706'),('low','Niedrig','#0284c7'),('info','Info','#94a3b8')] %}
+      {% set count = dashboard.counts.get(sev, 0) %}
+      {% if count > 0 %}
+      <span style="display: inline-flex; align-items: center; gap: 3pt; padding: 2pt 6pt; background: rgba(255,255,255,0.08); border-radius: 3pt;">
+        <span style="width: 6pt; height: 6pt; background: {{ col }}; border-radius: 50%; display: inline-block;"></span>
+        {{ label }} <strong style="color: white;">{{ count }}</strong>
+      </span>
+      {% endif %}
+    {% endfor %}
   </div>
   {% endif %}
 

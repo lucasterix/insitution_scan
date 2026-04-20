@@ -21,16 +21,101 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 async def _tpl(request: Request, session: AsyncSession, template: str, ctx: dict) -> HTMLResponse:
+    from sqlalchemy import func
     user = await get_current_user(request, session)
     ctx["current_user"] = user
+    # Navbar unread badge — cheap SELECT, fine on every page.
+    if "nav_unread_msgs" not in ctx:
+        try:
+            ctx["nav_unread_msgs"] = (await session.execute(
+                select(func.count(Message.id)).where(
+                    Message.direction == "inbound", Message.read_at.is_(None)
+                )
+            )).scalar() or 0
+        except Exception:  # noqa: BLE001 — never block rendering on this
+            ctx["nav_unread_msgs"] = 0
     return templates.TemplateResponse(request, template, ctx)
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request, session: AsyncSession = Depends(get_session)) -> HTMLResponse:
-    result = await session.execute(select(Scan).order_by(Scan.created_at.desc()).limit(20))
-    scans = result.scalars().all()
-    return await _tpl(request, session, "index.html", {"scans": scans})
+async def index(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    status: str = "",
+    q: str = "",
+    page: int = 1,
+) -> HTMLResponse:
+    from datetime import timedelta
+    from sqlalchemy import and_, func, or_
+
+    PER_PAGE = 20
+    page = max(1, page)
+
+    # ---- Aggregate stats (full DB, not filtered) ----
+    now = datetime.now(timezone.utc)
+    today_start = now - timedelta(days=1)
+    stats_q = await session.execute(
+        select(Scan.status, func.count(Scan.id)).group_by(Scan.status)
+    )
+    by_status = {row[0]: row[1] for row in stats_q.all()}
+
+    today_count = (await session.execute(
+        select(func.count(Scan.id)).where(Scan.created_at >= today_start)
+    )).scalar() or 0
+
+    # Avg duration on completed scans with timestamps.
+    avg_row = (await session.execute(
+        select(func.avg(func.extract("epoch", Scan.finished_at) - func.extract("epoch", Scan.started_at)))
+        .where(Scan.status == "completed", Scan.started_at.isnot(None), Scan.finished_at.isnot(None))
+    )).scalar()
+    avg_duration_s = int(avg_row) if avg_row else 0
+
+    unread_msgs = (await session.execute(
+        select(func.count(Message.id)).where(
+            Message.direction == "inbound", Message.read_at.is_(None)
+        )
+    )).scalar() or 0
+
+    stats = {
+        "total":     sum(by_status.values()),
+        "queued":    by_status.get("queued", 0),
+        "running":   by_status.get("running", 0),
+        "completed": by_status.get("completed", 0),
+        "failed":    by_status.get("failed", 0),
+        "today":     today_count,
+        "avg_duration_s": avg_duration_s,
+        "unread_msgs": unread_msgs,
+    }
+
+    # ---- Filtered + paginated list ----
+    where = []
+    if status in ("queued", "running", "completed", "failed"):
+        where.append(Scan.status == status)
+    if q:
+        needle = f"%{q.strip()}%"
+        where.append(or_(Scan.institution_name.ilike(needle), Scan.target_domain.ilike(needle)))
+
+    count_stmt = select(func.count(Scan.id))
+    if where:
+        count_stmt = count_stmt.where(and_(*where))
+    total_matching = (await session.execute(count_stmt)).scalar() or 0
+    total_pages = max(1, (total_matching + PER_PAGE - 1) // PER_PAGE)
+    page = min(page, total_pages)
+
+    list_stmt = select(Scan).order_by(Scan.created_at.desc()).limit(PER_PAGE).offset((page - 1) * PER_PAGE)
+    if where:
+        list_stmt = list_stmt.where(and_(*where))
+    scans = (await session.execute(list_stmt)).scalars().all()
+
+    return await _tpl(
+        request, session, "index.html",
+        {
+            "scans": scans, "stats": stats,
+            "status_filter": status, "q": q,
+            "page": page, "total_pages": total_pages, "per_page": PER_PAGE,
+            "total_matching": total_matching,
+        },
+    )
 
 
 @router.get("/scans/new", response_class=HTMLResponse)
@@ -218,13 +303,43 @@ async def scan_status_fragment(
 
 @router.get("/inbox", response_class=HTMLResponse)
 async def inbox(
-    request: Request, session: AsyncSession = Depends(get_session)
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    direction: str = "",
+    q: str = "",
+    unread: int = 0,
+    page: int = 1,
 ) -> HTMLResponse:
-    # Load last 200 messages across all scans, newest first.
-    q = select(Message).order_by(Message.received_at.desc()).limit(200)
-    res = await session.execute(q)
-    messages = list(res.scalars().all())
-    # Fetch associated scans in bulk for display links.
+    from sqlalchemy import and_, func, or_
+    PER_PAGE = 50
+    page = max(1, page)
+
+    where = []
+    if direction in ("inbound", "outbound"):
+        where.append(Message.direction == direction)
+    if unread:
+        where.append(and_(Message.direction == "inbound", Message.read_at.is_(None)))
+    if q:
+        needle = f"%{q.strip()}%"
+        where.append(or_(
+            Message.subject.ilike(needle),
+            Message.from_addr.ilike(needle),
+            Message.to_addr.ilike(needle),
+            Message.body_text.ilike(needle),
+        ))
+
+    count_stmt = select(func.count(Message.id))
+    if where:
+        count_stmt = count_stmt.where(and_(*where))
+    total = (await session.execute(count_stmt)).scalar() or 0
+    total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
+    page = min(page, total_pages)
+
+    list_stmt = select(Message).order_by(Message.received_at.desc()).limit(PER_PAGE).offset((page - 1) * PER_PAGE)
+    if where:
+        list_stmt = list_stmt.where(and_(*where))
+    messages = list((await session.execute(list_stmt)).scalars().all())
+
     scan_ids = {m.scan_id for m in messages if m.scan_id}
     scans_by_id: dict[str, Scan] = {}
     if scan_ids:
@@ -232,10 +347,32 @@ async def inbox(
         res2 = await session.execute(q2)
         for s in res2.scalars():
             scans_by_id[s.id] = s
+
     return await _tpl(
         request, session, "inbox.html",
-        {"messages": messages, "scans_by_id": scans_by_id},
+        {
+            "messages": messages, "scans_by_id": scans_by_id,
+            "direction_filter": direction, "q": q, "unread_only": bool(unread),
+            "page": page, "total_pages": total_pages, "total": total,
+        },
     )
+
+
+@router.post("/inbox/mark-all-read")
+async def inbox_mark_all_read(
+    request: Request, session: AsyncSession = Depends(get_session)
+) -> Response:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+    from sqlalchemy import update
+    await session.execute(
+        update(Message)
+        .where(Message.direction == "inbound", Message.read_at.is_(None))
+        .values(read_at=datetime.now(timezone.utc))
+    )
+    await session.commit()
+    return RedirectResponse(url="/inbox", status_code=303)
 
 
 @router.get("/messages/{message_id}", response_class=HTMLResponse)
@@ -245,6 +382,10 @@ async def message_detail(
     msg = await session.get(Message, message_id)
     if not msg:
         raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
+    # Auto-mark inbound messages as read on view.
+    if msg.direction == "inbound" and msg.read_at is None:
+        msg.read_at = datetime.now(timezone.utc)
+        await session.commit()
     scan = await session.get(Scan, msg.scan_id) if msg.scan_id else None
     return await _tpl(
         request, session, "message_detail.html",
@@ -472,6 +613,40 @@ async def inbox_poll(
             body = '<div class="text-sm text-slate-500">Keine neuen Nachrichten.</div>'
         return HTMLResponse(body)
     return RedirectResponse(url="/inbox", status_code=303)
+
+
+@router.post("/scans/{scan_id}/rescan")
+async def rescan(
+    request: Request, scan_id: str, session: AsyncSession = Depends(get_session)
+) -> Response:
+    """One-click re-run: clone the scan's settings as a new queued Scan row."""
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+    orig = await session.get(Scan, scan_id)
+    if not orig:
+        raise HTTPException(status_code=404, detail="Scan nicht gefunden")
+
+    new_scan = Scan(
+        institution_name=orig.institution_name,
+        target_domain=orig.target_domain,
+        status="queued",
+        progress=0,
+        ownership_confirmed=True,  # inherit the original consent
+        deep_scan=orig.deep_scan,
+        rate_limit_test=orig.rate_limit_test,
+        context=orig.context,
+    )
+    session.add(new_scan)
+    await session.flush()
+    new_id = new_scan.id
+    await session.commit()
+
+    scan_queue.enqueue(
+        run_scan_job, new_id, orig.target_domain, orig.deep_scan, orig.rate_limit_test,
+        job_id=f"scan-{new_id}",
+    )
+    return RedirectResponse(url=f"/scans/{new_id}", status_code=303)
 
 
 @router.post("/scans/{scan_id}/delete")

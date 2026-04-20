@@ -75,3 +75,4 @@ class Message(Base):
     attachments_meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # [{filename, size, mime}]
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
     raw_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)  # IMAP UID, for idempotency
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)

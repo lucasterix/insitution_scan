@@ -31,6 +31,8 @@ async def init_db() -> None:
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS deep_scan BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS rate_limit_test BOOLEAN NOT NULL DEFAULT FALSE",
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS context JSON",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ",
+            "CREATE INDEX IF NOT EXISTS ix_messages_read_at ON messages (read_at)",
         ):
             await conn.execute(text(ddl))
 

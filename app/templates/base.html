@@ -24,7 +24,10 @@
       </a>
       <nav class="flex items-center gap-2">
         <a href="/" class="hidden sm:inline px-3 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition">Übersicht</a>
-        <a href="/inbox" class="hidden sm:inline px-3 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition">Posteingang</a>
+        <a href="/inbox" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition">
+          Posteingang
+          {% if nav_unread_msgs and nav_unread_msgs > 0 %}<span class="inline-flex items-center justify-center px-1.5 h-4 min-w-[18px] text-[10px] font-bold bg-sky-600 text-white rounded-full">{{ nav_unread_msgs }}</span>{% endif %}
+        </a>
         <a href="/scans/new" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium shadow-sm transition">
           + Neuer Scan
         </a>
