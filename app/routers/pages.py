@@ -296,6 +296,46 @@ async def _episodes_for_scan(session: AsyncSession, scan: Scan) -> dict[str, dic
     return out
 
 
+# Number of days an outbound can sit without a reply before we surface
+# the "Folgemail" CTA. Tweak here if the cadence needs to change.
+FOLLOWUP_OVERDUE_DAYS = 4
+
+
+def _followup_state(scan: Scan, messages: list[Message]) -> dict | None:
+    """Return {overdue, days_since, last_outbound, recipient} or None.
+
+    None = no follow-up makes sense yet (no outbound, a reply already came,
+    or we're still inside the grace window).
+    """
+    outbounds = [m for m in messages if m.direction == "outbound"]
+    if not outbounds:
+        return None
+    last_out = max(outbounds, key=lambda m: m.received_at or datetime.min.replace(tzinfo=timezone.utc))
+    if not last_out.received_at:
+        return None
+    # Reply already arrived after our last outbound → thread is alive, skip.
+    for m in messages:
+        if m.direction == "inbound" and m.received_at and m.received_at > last_out.received_at:
+            return None
+
+    days = (datetime.now(timezone.utc) - last_out.received_at).days
+    overdue = days >= FOLLOWUP_OVERDUE_DAYS
+    if not overdue:
+        return None
+    recipient = last_out.to_addr or ""
+    # to_addr may contain multiple recipients separated by comma/semicolon —
+    # keep the first real address for the follow-up.
+    if recipient:
+        first = recipient.split(",")[0].split(";")[0].strip()
+        recipient = first
+    return {
+        "overdue": True,
+        "days_since": days,
+        "last_outbound": last_out,
+        "recipient": recipient,
+    }
+
+
 async def _messages_for_scan(session: AsyncSession, scan: Scan) -> list[Message]:
     """Return all messages tied to this scan (either directly or via sender domain match)."""
     # Primary: direct scan_id link
@@ -332,11 +372,12 @@ async def scan_detail(
     contact, offer = _contact_and_offer(scan)
     messages = await _messages_for_scan(session, scan)
     episodes = await _episodes_for_scan(session, scan)
+    followup = _followup_state(scan, messages)
     return await _tpl(
         request, session, "scan_detail.html",
         {"scan": scan, "kbv": kbv, "dashboard": dashboard,
          "contact": contact, "offer": offer, "format_eur": format_eur,
-         "messages": messages, "episodes": episodes},
+         "messages": messages, "episodes": episodes, "followup": followup},
     )
 
 
@@ -352,11 +393,12 @@ async def scan_status_fragment(
     contact, offer = _contact_and_offer(scan)
     messages = await _messages_for_scan(session, scan)
     episodes = await _episodes_for_scan(session, scan)
+    followup = _followup_state(scan, messages)
     return templates.TemplateResponse(
         request, "partials/scan_status.html",
         {"scan": scan, "kbv": kbv, "dashboard": dashboard,
          "contact": contact, "offer": offer, "format_eur": format_eur,
-         "messages": messages, "episodes": episodes},
+         "messages": messages, "episodes": episodes, "followup": followup},
     )
 
 
@@ -560,6 +602,246 @@ def _fallback_draft(msg: Message, scan: Scan | None) -> str:
         "Daniel Rupp\n"
         "Advanced Analytics GmbH — ZDKG"
     )
+
+
+def _build_followup_prompt(scan: Scan, last_out: Message, days_since: int) -> tuple[str, str]:
+    """System + user prompt for a firmer follow-up after FOLLOWUP_OVERDUE_DAYS of silence.
+
+    The tone is "bestimmt, sachlich, mit Verweis auf konkrete Verstöße" — not
+    aggressive, not threatening, but unmistakably geschäftsförmlich and with
+    a deadline. ERFINDE NICHTS is still in force.
+    """
+    system = (
+        "Du bist Daniel Rupp, Geschäftsführer der Advanced Analytics GmbH (ZDKG). "
+        "Du schreibst eine FOLGEMAIL an eine Institution, die auf deine erste Mail "
+        f"(Scan-Bericht + Angebot) seit {days_since} Tagen nicht geantwortet hat. "
+        "Die Tonalität ist bestimmt und geschäftsförmlich — deutlich kühler als die erste Mail, "
+        "aber nie unhöflich und NICHT drohend.\n\n"
+        "HARTE REGELN:\n"
+        "1. ERFINDE NICHTS. Nur Befunde, die WÖRTLICH im Kontext unten stehen, dürfen referenziert "
+        "   werden. KEINE CVE-Nummern, KEINE Versionen, KEINE Zahlen über das hinaus was mitgeliefert wird.\n"
+        "2. Nenne die konkret festgestellten Verstöße nochmal klar benannt (severity + Titel jeweils "
+        "   auf eine Zeile). Wenn KRITISCHE oder HOHE Befunde vorliegen, benenne diese explizit oben "
+        "   als ‚kritische Sicherheitsmängel' bzw. ‚hohe Risiken'.\n"
+        "3. Weise sachlich darauf hin, dass unbehandelte Mängel dieser Art unter KBV §390 SGB V, DSGVO "
+        "   Art. 32 und ggf. NIS2 regelmäßig bußgeld- und haftungsrelevant sind — ohne konkrete Bußgeldhöhen "
+        "   zu nennen. Keine Drohungen, keine Ultimaten, die wir nicht einhalten könnten.\n"
+        "4. Setze eine konkrete, moderate Frist für eine Rückmeldung (z.B. ‚in den kommenden 7 Werktagen').\n"
+        "5. Biete am Ende einen kurzen Rückruf/Videocall an (Telefon +49 176 43677735).\n"
+        "6. Immer Sie-Form. Kein Du.\n\n"
+        "FORM:\n"
+        "- 3–5 Absätze. Keine Floskeln. Keine Markdown. Keine ```-Fences.\n"
+        "- Betreff baut auf dem letzten Mailbetreff auf (Präfix ‚Folgemail: ' oder ‚Erinnerung: ').\n"
+        "- Grußformel: ‚Mit freundlichen Grüßen\\n\\nDaniel Rupp\\nAdvanced Analytics GmbH — ZDKG'.\n"
+        "- Ausgabe: direkt der Mail-Body — kein Betreff im Output, keine Präambel."
+    )
+    findings = (scan.result or {}).get("findings") or []
+    critical = [f for f in findings if f.get("severity") == "critical"]
+    high = [f for f in findings if f.get("severity") == "high"]
+    medium = [f for f in findings if f.get("severity") == "medium"]
+    lines = []
+    lines.append(f"Scan: {scan.institution_name} / {scan.target_domain}")
+    lines.append(f"Letzte Mail an den Kunden: {last_out.received_at.strftime('%d.%m.%Y') if last_out.received_at else '?'} — Betreff: {last_out.subject or '(ohne Betreff)'}")
+    lines.append(f"Seitdem keine Antwort eingegangen (Stand: {days_since} Tage).")
+    lines.append("")
+    if critical:
+        lines.append(f"KRITISCHE Befunde ({len(critical)}):")
+        for f in critical[:8]:
+            lines.append(f"  - {f.get('title')}")
+    if high:
+        lines.append(f"HOHE Befunde ({len(high)}):")
+        for f in high[:8]:
+            lines.append(f"  - {f.get('title')}")
+    if medium and not critical and not high:
+        lines.append(f"MITTLERE Befunde ({len(medium)}):")
+        for f in medium[:5]:
+            lines.append(f"  - {f.get('title')}")
+    if not (critical or high or medium):
+        lines.append("(Es liegen aktuell keine als kritisch/hoch/mittel eingestuften Befunde vor.)")
+    lines.append("")
+    lines.append("Letzte ausgehende Mail (Auszug):")
+    lines.append((last_out.body_text or "(kein Text)")[:1500])
+    user_prompt = "\n".join(lines) + "\n\nSchreibe jetzt den Mail-Body der Folgemail."
+    return system, user_prompt
+
+
+def _fallback_followup(scan: Scan, last_out: Message, days_since: int) -> str:
+    """Deterministic follow-up text if the LLM is off/errored."""
+    findings = (scan.result or {}).get("findings") or []
+    critical = [f for f in findings if f.get("severity") == "critical"]
+    high = [f for f in findings if f.get("severity") == "high"]
+    bullet_lines: list[str] = []
+    for f in critical[:6]:
+        bullet_lines.append(f"  • [KRITISCH] {f.get('title')}")
+    for f in high[:6]:
+        bullet_lines.append(f"  • [HOCH] {f.get('title')}")
+    findings_block = "\n".join(bullet_lines) if bullet_lines else "  (siehe beigefügten Prüfbericht)"
+    return (
+        f"Sehr geehrte Damen und Herren,\n\n"
+        f"wir hatten Ihnen am {last_out.received_at.strftime('%d.%m.%Y') if last_out.received_at else '?'} "
+        f"unseren Prüfbericht mit konkretem Handlungsvorschlag übermittelt. Seitdem sind "
+        f"{days_since} Tage vergangen, ohne dass uns eine Rückmeldung erreicht hat.\n\n"
+        f"Unabhängig davon bleiben die festgestellten Mängel unverändert bestehen. "
+        f"Dies betrifft insbesondere folgende Befunde:\n\n"
+        f"{findings_block}\n\n"
+        f"Mängel dieser Art fallen in den Regelungsbereich von KBV §390 SGB V, DSGVO Art. 32 und — "
+        f"bei wesentlichen/wichtigen Einrichtungen im Gesundheitssektor — NIS2UmsuCG. "
+        f"Eine fortgesetzte Nichtbearbeitung ist haftungs- und aufsichtsrechtlich heikel.\n\n"
+        f"Wir bitten um eine Rückmeldung innerhalb der kommenden 7 Werktage — gerne telefonisch "
+        f"unter +49 176 43677735 oder per Antwort auf diese Mail. Sollten Sie Rückfragen zum "
+        f"Bericht oder zum Angebot haben, klären wir diese in einem kurzen Gespräch.\n\n"
+        f"Mit freundlichen Grüßen\n\n"
+        f"Daniel Rupp\n"
+        f"Advanced Analytics GmbH — ZDKG"
+    )
+
+
+@router.get("/scans/{scan_id}/followup", response_class=HTMLResponse)
+async def followup_compose(
+    request: Request, scan_id: str, session: AsyncSession = Depends(get_session)
+) -> HTMLResponse:
+    scan = await session.get(Scan, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan nicht gefunden")
+    messages = await _messages_for_scan(session, scan)
+    state = _followup_state(scan, messages)
+    if not state:
+        # Let the user still reach the page even if not strictly "overdue" —
+        # show a gentle hint. But if no outbound at all, 400.
+        has_outbound = any(m.direction == "outbound" for m in messages)
+        if not has_outbound:
+            raise HTTPException(status_code=400, detail="Keine ausgehende Mail vorhanden, auf die folgemailbar wäre.")
+    last_out = state["last_outbound"] if state else next(
+        (m for m in sorted(
+            (x for x in messages if x.direction == "outbound"),
+            key=lambda x: x.received_at or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )),
+        None,
+    )
+    days_since = state["days_since"] if state else ((datetime.now(timezone.utc) - last_out.received_at).days if last_out and last_out.received_at else 0)
+    recipient = (state or {}).get("recipient") or (last_out.to_addr.split(",")[0].strip() if last_out and last_out.to_addr else "")
+
+    from app import llm
+    draft = _fallback_followup(scan, last_out, days_since)
+    if llm.is_enabled():
+        try:
+            sysp, userp = _build_followup_prompt(scan, last_out, days_since)
+            ai = llm.draft(sysp, userp, scan_id=scan.id)
+            if ai and ai.strip():
+                draft = ai.strip()
+        except Exception:  # noqa: BLE001
+            pass
+
+    suggested_subject = last_out.subject or ""
+    if suggested_subject and not suggested_subject.lower().startswith(("folgemail", "erinnerung", "re:")):
+        suggested_subject = f"Folgemail: {suggested_subject}"
+    elif not suggested_subject:
+        suggested_subject = f"Folgemail zum Prüfbericht {scan.target_domain}"
+
+    return await _tpl(
+        request, session, "followup_compose.html",
+        {
+            "scan": scan, "last_out": last_out, "days_since": days_since,
+            "recipient": recipient, "draft": draft, "suggested_subject": suggested_subject,
+            "state": state,
+        },
+    )
+
+
+@router.post("/scans/{scan_id}/send-followup")
+async def send_followup(
+    request: Request,
+    scan_id: str,
+    subject: str = Form(...),
+    body: str = Form(...),
+    to: str = Form(...),
+    cc: str = Form(""),
+    scheduled_for: str = Form(""),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    scan = await session.get(Scan, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan nicht gefunden")
+    if not to.strip():
+        raise HTTPException(status_code=400, detail="Empfänger fehlt")
+
+    from app import mailer
+    if not mailer.is_enabled():
+        raise HTTPException(status_code=503, detail="SMTP nicht konfiguriert")
+
+    # Thread into the last outbound so the follow-up is visibly a continuation.
+    messages = await _messages_for_scan(session, scan)
+    outbounds = [m for m in messages if m.direction == "outbound"]
+    last_out = max(outbounds, key=lambda m: m.received_at or datetime.min.replace(tzinfo=timezone.utc)) if outbounds else None
+    in_reply_to = last_out.message_id if last_out else None
+    refs = None
+    if last_out:
+        refs_parts = [p for p in [(last_out.references or ""), (last_out.message_id or "")] if p]
+        refs = " ".join(refs_parts).strip() or None
+
+    send_at = _parse_scheduled_for(scheduled_for)
+    if send_at is not None:
+        sched = ScheduledEmail(
+            inbound_message_id=None,
+            scan_id=scan.id,
+            to_addr=to.strip(),
+            cc_addr=cc.strip() or None,
+            subject=subject,
+            body_text=body,
+            in_reply_to=in_reply_to,
+            references=refs,
+            scheduled_for=send_at,
+            status="queued",
+        )
+        session.add(sched)
+        await session.commit()
+        local_str = send_at.astimezone().strftime("%d.%m.%Y %H:%M")
+        if request.headers.get("hx-request"):
+            return HTMLResponse(
+                '<div class="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">'
+                f'Folgemail geplant für <strong>{local_str}</strong> — geht automatisch an {to.strip()}.'
+                '</div>'
+            )
+        return RedirectResponse(url=f"/scans/{scan.id}", status_code=303)
+
+    try:
+        rec = mailer.send_offer_email(
+            to_email=to.strip(),
+            subject=subject,
+            body_text=body,
+            attachments=[],
+            cc=cc.strip() or None,
+            in_reply_to=in_reply_to,
+            references=refs,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"SMTP-Fehler: {type(e).__name__}: {e}")
+
+    session.add(Message(
+        scan_id=scan.id,
+        direction="outbound",
+        message_id=rec["message_id"],
+        in_reply_to=rec["in_reply_to"],
+        references=rec["references"],
+        from_addr=rec["from_addr"],
+        to_addr=rec["to_addr"],
+        cc_addr=rec["cc"],
+        subject=rec["subject"],
+        body_text=rec["body_text"],
+    ))
+    await session.commit()
+    if request.headers.get("hx-request"):
+        return HTMLResponse(
+            '<div class="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-900">'
+            f'Folgemail an {to.strip()} gesendet.'
+            '</div>'
+        )
+    return RedirectResponse(url=f"/scans/{scan.id}", status_code=303)
 
 
 @router.post("/messages/{message_id}/draft-reply", response_class=HTMLResponse)
