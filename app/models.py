@@ -76,3 +76,30 @@ class Message(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
     raw_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)  # IMAP UID, for idempotency
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class ScanEpisode(Base):
+    """Episodic memory of findings per target domain.
+
+    One row per (domain, finding_id). Updated on every completed scan so the
+    PDF / UI can show 'diese Schwachstelle besteht seit X Tagen'. When a
+    previously-seen finding no longer appears in a later scan, we stamp
+    resolved_at — so we can also highlight 'endlich geschlossen' situations.
+    """
+    __tablename__ = "scan_episodes"
+    __table_args__ = (
+        Index("ix_episodes_domain_finding", "domain", "finding_id", unique=True),
+        Index("ix_episodes_domain_open", "domain", "resolved_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    domain: Mapped[str] = mapped_column(String(255), index=True)
+    finding_id: Mapped[str] = mapped_column(String(255), index=True)
+    severity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    observation_count: Mapped[int] = mapped_column(default=1)
+    scan_id_latest: Mapped[str | None] = mapped_column(String(36), nullable=True)

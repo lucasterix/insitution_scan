@@ -662,6 +662,11 @@ def run_osint_scan(
     _module_timeout_s = int(_settings.scan_module_timeout_seconds or 0)
     _total_budget_s = int(_settings.scan_total_budget_seconds or 0)
 
+    # Mutable set — populated by the Delta-Refiner after the recon phase (if
+    # enabled). run() checks membership to skip modules the refiner marked as
+    # irrelevant for this specific target.
+    _refiner_skip: set[str] = set()
+
     def run(fn, *args, **kwargs):
         """Run a scanner module with timing, error isolation, per-module
         timeout, and global scan budget enforcement.
@@ -672,6 +677,15 @@ def run_osint_scan(
         """
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
         name = getattr(fn, "__name__", str(fn))
+
+        # Refiner-decided skip (pentagi Delta-Refiner pattern).
+        if name in _refiner_skip:
+            result.metadata.setdefault("scanner_errors", []).append({
+                "module": name,
+                "error": "skipped: refiner marked irrelevant for this target",
+            })
+            result.metadata["timing"][name] = 0.0
+            return
 
         # Total-budget gate: stop running new modules once the combined
         # per-module elapsed time passes the budget.
@@ -749,8 +763,24 @@ def run_osint_scan(
         run(check_email_deep, domain, result, step)
         run(crawl_site, domain, result, step)
         run(check_privacy, domain, result, step)
-        run(check_healthcare, domain, result, step)
         run(check_http, domain, result, step)
+
+        # Delta-Refiner: after DNS + HTTP ran, ask the LLM which optional
+        # modules to skip for this target. Opt-in via scan_use_refiner.
+        # Safe fallback — returns empty set on any error; no modules get skipped.
+        if _settings.scan_use_refiner:
+            try:
+                from app.compliance.refiner import refine, collect_recon_context
+                ctx = collect_recon_context(domain, result.metadata, is_ip=False)
+                _refiner_skip |= refine(ctx)
+                if _refiner_skip:
+                    result.metadata["refiner_skipped"] = sorted(_refiner_skip)
+            except Exception as _err:  # noqa: BLE001 — never block scans on refiner errors
+                result.metadata.setdefault("scanner_errors", []).append({
+                    "module": "refiner", "error": f"{type(_err).__name__}: {_err}"
+                })
+
+        run(check_healthcare, domain, result, step)
         run(check_tls, domain, result, step)
         run(check_tls_deep, domain, result, step)
         run(check_ssllabs, domain, result, step)

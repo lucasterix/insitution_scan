@@ -53,6 +53,16 @@ def run_scan_job(scan_id: str, domain: str, deep_scan: bool = False, rate_limit_
             finished_at=datetime.now(timezone.utc),
             result=result,
         )
+
+        # Update per-domain episodic memory so rescans show "seit X Tagen offen".
+        # Wrapped to never fail the scan on episode-update errors.
+        try:
+            from app.compliance.episodes import update_episodes_sync
+            with Session(engine) as s:
+                summary = update_episodes_sync(s, scan_id, domain, result)
+                print(f"[episodes] {domain}: {summary}", flush=True)
+        except Exception as ep_err:  # noqa: BLE001
+            print(f"[episodes] update failed: {type(ep_err).__name__}: {ep_err}", flush=True)
     except Exception as e:  # noqa: BLE001
         set_status(
             status="failed",

@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     llm_budget_tokens_per_scan: int = 60000   # ~30 drafts @ ~2000 avg
     llm_budget_tokens_per_day: int = 500000   # global safety net
 
+    # Delta-Refiner (pentagi-inspired): after the first recon phase a tiny LLM
+    # call decides which of the 50 scanner modules actually make sense for
+    # THIS target. Cuts runtime for clearly-irrelevant modules (e.g. don't run
+    # VPN-endpoint probes on a static site). Off by default — opt-in per env.
+    scan_use_refiner: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

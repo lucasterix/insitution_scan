@@ -33,6 +33,8 @@ async def init_db() -> None:
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS context JSON",
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ",
             "CREATE INDEX IF NOT EXISTS ix_messages_read_at ON messages (read_at)",
+            # scan_episodes table is created by create_all above; the unique
+            # index is declared in the model. Nothing extra needed here.
         ):
             await conn.execute(text(ddl))
 

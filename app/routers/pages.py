@@ -239,6 +239,26 @@ def _contact_and_offer(scan: Scan) -> tuple[dict, dict]:
     return contact, offer
 
 
+async def _episodes_for_scan(session: AsyncSession, scan: Scan) -> dict[str, dict]:
+    """Return {finding_id: {first_seen, last_seen, observation_count, days_known, resolved_at}}
+    for the scan's target_domain. UI uses this to render 'seit X Tagen offen' badges."""
+    from app.models import ScanEpisode
+    from app.compliance.episodes import days_since
+
+    q = select(ScanEpisode).where(ScanEpisode.domain == scan.target_domain)
+    res = await session.execute(q)
+    out: dict[str, dict] = {}
+    for ep in res.scalars():
+        out[ep.finding_id] = {
+            "first_seen": ep.first_seen,
+            "last_seen": ep.last_seen,
+            "observation_count": ep.observation_count or 1,
+            "days_known": days_since(ep.first_seen),
+            "resolved_at": ep.resolved_at,
+        }
+    return out
+
+
 async def _messages_for_scan(session: AsyncSession, scan: Scan) -> list[Message]:
     """Return all messages tied to this scan (either directly or via sender domain match)."""
     # Primary: direct scan_id link
@@ -274,11 +294,12 @@ async def scan_detail(
     dashboard = build_dashboard(scan.result)
     contact, offer = _contact_and_offer(scan)
     messages = await _messages_for_scan(session, scan)
+    episodes = await _episodes_for_scan(session, scan)
     return await _tpl(
         request, session, "scan_detail.html",
         {"scan": scan, "kbv": kbv, "dashboard": dashboard,
          "contact": contact, "offer": offer, "format_eur": format_eur,
-         "messages": messages},
+         "messages": messages, "episodes": episodes},
     )
 
 
@@ -293,11 +314,12 @@ async def scan_status_fragment(
     dashboard = build_dashboard(scan.result)
     contact, offer = _contact_and_offer(scan)
     messages = await _messages_for_scan(session, scan)
+    episodes = await _episodes_for_scan(session, scan)
     return templates.TemplateResponse(
         request, "partials/scan_status.html",
         {"scan": scan, "kbv": kbv, "dashboard": dashboard,
          "contact": contact, "offer": offer, "format_eur": format_eur,
-         "messages": messages},
+         "messages": messages, "episodes": episodes},
     )
 
 

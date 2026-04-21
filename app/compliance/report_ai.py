@@ -76,6 +76,42 @@ def _strip_markdown_fences(text: str) -> str:
     return m.group(1).strip() if m else text.strip()
 
 
+JSON_FIXER_SYSTEM = (
+    "Du bekommst einen Text der eigentlich valides JSON nach diesem Schema sein sollte:\n\n"
+    "{schema}\n\n"
+    "Der Text ist kaputt (Markdown-Fences, Prosa drumherum, fehlende Quotes, trailing commas, "
+    "Kommentare). Gib NUR das reparierte, valide JSON zurück. Keine Einleitung, keine "
+    "Fences, kein Kommentar. Erfinde keine Felder die nicht im Original sind — fehlende "
+    "Felder aus dem Schema dürfen aus dem Text ergänzt werden wenn sinnvoll, sonst leer lassen."
+)
+
+
+def _repair_json(raw: str, schema_hint: str, *, scan_id: str | None = None) -> dict | None:
+    """Reflector-style second chance: when json.loads() fails, a cheap LLM call
+    reformats the raw text into schema-valid JSON. Inspired by pentagi's
+    input_toolcall_fixer — far less tokens than re-running the whole Enricher.
+
+    Returns the parsed dict on success, None on total failure."""
+    try:
+        text = llm.draft(
+            JSON_FIXER_SYSTEM.replace("{schema}", schema_hint),
+            raw,
+            max_tokens=500,
+            temperature=0.0,
+            scan_id=scan_id,
+        )
+    except llm.BudgetExceeded:
+        return None
+    except Exception as e:  # noqa: BLE001
+        log.warning("JSON fixer call failed: %s", e)
+        return None
+    cleaned = _strip_markdown_fences(text)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None
+
+
 def _flatten_markdown(text: str) -> str:
     """Defensive post-processor for the Reporter/Adviser output.
 
@@ -161,8 +197,26 @@ def enrich(institution_name: str, target_domain: str, findings: list[dict], dash
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        log.warning("Enricher returned non-JSON, using fallback. Got: %s", text[:200])
+        # Second chance: ask a cheap fixer-call to reformat into valid JSON.
+        repaired = _repair_json(text, _ENRICHER_SCHEMA_HINT, scan_id=scan_id)
+        if repaired is not None:
+            log.info("Enricher JSON repaired via fixer")
+            return repaired
+        log.warning("Enricher JSON unrepairable, using skeleton fallback. Got: %s", text[:200])
         return {"worst_severity": max(sev_counts, key=lambda k: sev_order.get(k, 9), default="info")}
+
+
+_ENRICHER_SCHEMA_HINT = (
+    "{\n"
+    '  "institution_type": "string",\n'
+    '  "worst_severity": "critical|high|medium|low|info",\n'
+    '  "top_three_risks": ["string", "string", "string"],\n'
+    '  "compliance_flags": ["string", ...],\n'
+    '  "dominant_categories": ["string", ...],\n'
+    '  "shadow_it_signals": "string",\n'
+    '  "notable_context": "string"\n'
+    "}"
+)
 
 
 # ---------- Stage 2: Reporter ----------
