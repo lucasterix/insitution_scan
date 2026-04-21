@@ -38,6 +38,38 @@ async def _tpl(request: Request, session: AsyncSession, template: str, ctx: dict
 
 
 @router.get("/", response_class=HTMLResponse)
+def _summarize_for_list(scan: Scan) -> dict | None:
+    """Compact per-scan summary for the dashboard list row:
+      - grade letter + color
+      - counts by severity (only non-zero buckets)
+      - gross EUR total from the offer
+    Returns None for scans without a result (queued/running/failed early).
+    Pure in-memory work on scan.result — no DB, no LLM."""
+    if not scan.result or not (scan.result.get("findings") or []):
+        return None
+    try:
+        dash = build_dashboard(scan.result)
+        if not dash or not dash.get("has_data"):
+            return None
+        rate = (scan.context or {}).get("hourly_rate_eur") if scan.context else None
+        offer = build_offer(scan.result, hourly_rate_eur=rate)
+        counts = dash.get("counts") or {}
+        grade = dash.get("grade") or {}
+        return {
+            "grade_letter": grade.get("letter"),
+            "grade_color":  grade.get("color"),
+            "critical": counts.get("critical", 0),
+            "high":     counts.get("high", 0),
+            "medium":   counts.get("medium", 0),
+            "low":      counts.get("low", 0),
+            "info":     counts.get("info", 0),
+            "gross_eur": offer.get("gross_eur", 0),
+            "hours":     offer.get("total_hours", 0),
+        }
+    except Exception:  # noqa: BLE001 — list view must never fail on summary errors
+        return None
+
+
 async def index(
     request: Request,
     session: AsyncSession = Depends(get_session),
@@ -105,12 +137,17 @@ async def index(
     list_stmt = select(Scan).order_by(Scan.created_at.desc()).limit(PER_PAGE).offset((page - 1) * PER_PAGE)
     if where:
         list_stmt = list_stmt.where(and_(*where))
-    scans = (await session.execute(list_stmt)).scalars().all()
+    scans = list((await session.execute(list_stmt)).scalars().all())
+
+    # Compute in-memory summary (grade + severity counts + EUR) per completed scan,
+    # so the list shows criticality + price without a click-through.
+    summaries = {s.id: _summarize_for_list(s) for s in scans}
 
     return await _tpl(
         request, session, "index.html",
         {
-            "scans": scans, "stats": stats,
+            "scans": scans, "stats": stats, "summaries": summaries,
+            "format_eur": format_eur,
             "status_filter": status, "q": q,
             "page": page, "total_pages": total_pages, "per_page": PER_PAGE,
             "total_matching": total_matching,

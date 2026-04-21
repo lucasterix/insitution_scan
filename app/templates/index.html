@@ -112,14 +112,22 @@
     <ul class="divide-y divide-slate-100">
       {% for s in scans %}
         {% set color = {'queued': 'slate', 'running': 'amber', 'completed': 'emerald', 'failed': 'rose'}.get(s.status, 'slate') %}
+        {% set summary = summaries.get(s.id) %}
         <li class="scan-row flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
           <a href="/scans/{{ s.id }}" class="flex items-center gap-3 flex-1 min-w-0">
-            <div class="w-10 h-10 rounded-lg bg-{{ color }}-100 text-{{ color }}-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
-              {% if s.status == 'completed' %}✓
-              {% elif s.status == 'running' %}⚡
-              {% elif s.status == 'failed' %}✗
-              {% else %}⋯{% endif %}
-            </div>
+            {# --- Status badge OR grade letter (grade wins if available) --- #}
+            {% if summary and summary.grade_letter %}
+              {% set gcol = summary.grade_color or 'slate' %}
+              <div class="w-10 h-10 rounded-lg bg-{{ gcol }}-600 text-white flex items-center justify-center font-bold text-lg flex-shrink-0 shadow-sm" title="Sicherheits-Grade">{{ summary.grade_letter }}</div>
+            {% else %}
+              <div class="w-10 h-10 rounded-lg bg-{{ color }}-100 text-{{ color }}-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
+                {% if s.status == 'completed' %}✓
+                {% elif s.status == 'running' %}⚡
+                {% elif s.status == 'failed' %}✗
+                {% else %}⋯{% endif %}
+              </div>
+            {% endif %}
+
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-semibold text-slate-900 truncate">{{ s.institution_name }}</span>
@@ -131,9 +139,35 @@
                 {% endif %}
               </div>
               <div class="text-xs text-slate-500 mt-0.5 font-mono truncate">{{ s.target_domain }}</div>
+
+              {# --- Severity strip: colored pills with counts --- #}
+              {% if summary %}
+              <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                {% for sev, lbl, col in [('critical','Krit.','rose'),('high','Hoch','orange'),('medium','Mittel','amber'),('low','Niedrig','sky')] %}
+                  {% set n = summary[sev] %}
+                  {% if n > 0 %}
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0 rounded text-[10px] font-semibold bg-{{ col }}-100 text-{{ col }}-700" title="{{ lbl }}">
+                    <span class="w-1.5 h-1.5 rounded-full bg-{{ col }}-500"></span>{{ n }} {{ lbl }}
+                  </span>
+                  {% endif %}
+                {% endfor %}
+                {% if summary.info > 0 %}
+                  <span class="text-[10px] text-slate-400">+{{ summary.info }} Info</span>
+                {% endif %}
+              </div>
+              {% endif %}
             </div>
-            <div class="hidden md:block text-right text-xs text-slate-500 flex-shrink-0">
-              {{ s.created_at.strftime('%d.%m.%y %H:%M') if s.created_at }}
+
+            {# --- Right-side: brutto + hours --- #}
+            {% if summary %}
+            <div class="hidden sm:flex flex-col items-end flex-shrink-0 text-right">
+              <span class="text-sm font-bold text-slate-900">{{ format_eur(summary.gross_eur) }}</span>
+              <span class="text-[10px] text-slate-500">{{ '%.1f'|format(summary.hours) }} h · brutto</span>
+            </div>
+            {% endif %}
+            <div class="hidden md:block text-right text-xs text-slate-500 flex-shrink-0 min-w-[68px]">
+              {{ s.created_at.strftime('%d.%m.%y') if s.created_at }}<br>
+              <span class="text-slate-400">{{ s.created_at.strftime('%H:%M') if s.created_at }}</span>
             </div>
           </a>
           <form method="post" action="/scans/{{ s.id }}/rescan" class="flex-shrink-0"
