@@ -37,6 +37,7 @@ async def init_db() -> None:
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS bot_processed_at TIMESTAMPTZ",
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS bot_confidence REAL",
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS bot_reasoning TEXT",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS bot_draft_text TEXT",
             "CREATE INDEX IF NOT EXISTS ix_messages_bot_action ON messages (bot_action)",
             # scan_episodes table is created by create_all above; the unique
             # index is declared in the model. Nothing extra needed here.

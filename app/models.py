@@ -82,6 +82,11 @@ class Message(Base):
     bot_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     bot_confidence: Mapped[float | None] = mapped_column(nullable=True)
     bot_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Draft that the bot composed. Persisted for every action except 'skip':
+    #   - auto_reply: the text that was actually sent (also stored as outbound Message)
+    #   - forward:    the text the bot suggests Daniel sends — delivered in the forward
+    #   - dry_run:    the text that WOULD have been sent/forwarded
+    bot_draft_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ScanEpisode(Base):

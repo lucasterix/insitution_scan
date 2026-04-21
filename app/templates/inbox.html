@@ -27,6 +27,27 @@
   </div>
   <div id="poll-result" class="mb-3"></div>
 
+  {# KI-Bot Draft-Alert Banner — erscheint wenn dry_run oder forward Drafts warten #}
+  {% set total_drafts = (draft_counts.dry_run if draft_counts else 0) + (draft_counts.forward if draft_counts else 0) %}
+  {% if total_drafts > 0 %}
+  <div class="mb-4 rounded-xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-emerald-50 px-4 py-3">
+    <div class="flex items-start gap-3">
+      <span class="inline-flex w-9 h-9 rounded-full bg-amber-500 text-white items-center justify-center text-lg flex-shrink-0">✎</span>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-bold text-amber-900">
+          {{ total_drafts }} KI-Entwurf{{ 'e' if total_drafts != 1 else '' }} wartet auf Prüfung
+        </div>
+        <p class="text-xs text-amber-800 mt-0.5">
+          {% if draft_counts.dry_run %}{{ draft_counts.dry_run }} im Dry-Run-Modus{% endif %}
+          {% if draft_counts.dry_run and draft_counts.forward %} · {% endif %}
+          {% if draft_counts.forward %}{{ draft_counts.forward }} an Daniel zur Freigabe gesendet{% endif %}
+          — klicken Sie auf eine Nachricht unten um den Entwurf zu sehen und ggf. zu übernehmen.
+        </p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {# ---- Filters + search ---- #}
   <section class="mb-3 flex flex-wrap items-center gap-2">
     <nav class="inline-flex rounded-lg border border-slate-200 bg-white overflow-hidden text-sm">

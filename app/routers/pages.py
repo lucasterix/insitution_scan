@@ -407,12 +407,23 @@ async def inbox(
         for s in res2.scalars():
             scans_by_id[s.id] = s
 
+    # Draft counters for the banner: how many AI drafts are waiting for action?
+    draft_counts = {"dry_run": 0, "forward": 0}
+    for action in ("dry_run", "forward"):
+        c = (await session.execute(
+            select(func.count(Message.id)).where(
+                Message.direction == "inbound", Message.bot_action == action
+            )
+        )).scalar() or 0
+        draft_counts[action] = c
+
     return await _tpl(
         request, session, "inbox.html",
         {
             "messages": messages, "scans_by_id": scans_by_id,
             "direction_filter": direction, "q": q, "unread_only": bool(unread),
             "page": page, "total_pages": total_pages, "total": total,
+            "draft_counts": draft_counts,
         },
     )
 

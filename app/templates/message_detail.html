@@ -37,10 +37,10 @@
 
     {# KI-Bot-Status-Panel #}
     {% if msg.bot_action %}
-      {% set bot_meta = {'auto_reply': ('🤖 Automatisch beantwortet','emerald','Der Bot hat diese Nachricht in Daniel Rupps Namen beantwortet.'),
-                         'forward':    ('🤖 An Daniel weitergeleitet','sky','Einstufung: wichtig — Weiterleitung an daniel.rupp@froehlichdienste.de.'),
-                         'skip':       ('🤖 Manuell zu bearbeiten','slate','Der Bot hat hier nichts unternommen — bitte manuell prüfen.'),
-                         'dry_run':    ('🤖 Dry-Run','amber','Dry-Run-Modus: die geplante Aktion steht in der Begründung, nichts wurde verschickt.')} %}
+      {% set bot_meta = {'auto_reply': ('🤖 Automatisch beantwortet','emerald','Der Bot hat diese Nachricht in Daniel Rupps Namen beantwortet — Entwurf unten.'),
+                         'forward':    ('🤖 Entwurf an Daniel gesendet','sky','Der Bot hat einen Antwort-Entwurf erstellt und an daniel.rupp@froehlichdienste.de zur Freigabe weitergeleitet — Entwurf unten.'),
+                         'skip':       ('🤖 Keine Aktion','slate','Der Bot hat entschieden dass keine Antwort nötig ist. Nichts wurde versendet und nichts weitergeleitet.'),
+                         'dry_run':    ('🤖 Dry-Run · Entwurf bereit','amber','Dry-Run-Modus: der Entwurf wurde vom Bot vorbereitet aber nichts wurde versendet. Sie sehen die geplante Aktion in der Begründung.')} %}
       {% set bm = bot_meta.get(msg.bot_action, (msg.bot_action, 'slate', '')) %}
       <div class="px-6 py-3 bg-{{ bm[1] }}-50 border-b border-{{ bm[1] }}-100">
         <div class="flex items-baseline justify-between gap-3 flex-wrap">
@@ -54,6 +54,40 @@
           <p class="text-xs text-{{ bm[1] }}-800 mt-1"><span class="opacity-60">Begründung:</span> {{ msg.bot_reasoning }}{% if msg.bot_confidence is not none %} <span class="opacity-60">· Konfidenz: {{ '%.0f'|format(msg.bot_confidence * 100) }}%</span>{% endif %}</p>
         {% endif %}
       </div>
+
+      {# KI-Antwort-Entwurf (prominent) — bei auto_reply / forward / dry_run mit Draft #}
+      {% if msg.bot_draft_text %}
+      <div class="px-6 py-5 bg-gradient-to-br from-emerald-50 to-white border-b border-emerald-100">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold">✎</span>
+          <h3 class="text-sm font-bold text-emerald-900 uppercase tracking-wider">KI-Entwurf</h3>
+          {% if msg.bot_action == 'auto_reply' %}
+            <span class="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">✓ Verschickt</span>
+          {% elif msg.bot_action == 'forward' %}
+            <span class="text-xs bg-sky-100 text-sky-800 px-2 py-0.5 rounded">→ Zu Daniel zur Freigabe</span>
+          {% elif msg.bot_action == 'dry_run' %}
+            <span class="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded">Dry-Run — nicht gesendet</span>
+          {% endif %}
+        </div>
+        <div class="bg-white border border-emerald-200 rounded-lg p-4 relative group">
+          <pre class="whitespace-pre-wrap text-sm text-slate-800 font-sans leading-relaxed">{{ msg.bot_draft_text }}</pre>
+          <button type="button"
+                  onclick="navigator.clipboard.writeText(this.previousElementSibling.innerText); this.textContent='✓ kopiert'; setTimeout(()=>this.textContent='Kopieren',1500);"
+                  class="absolute top-2 right-2 text-xs px-2 py-1 bg-white/70 backdrop-blur border border-slate-200 rounded hover:bg-slate-50 text-slate-600">
+            Kopieren
+          </button>
+        </div>
+        {% if msg.direction == 'inbound' and msg.from_addr %}
+        <div class="mt-3 flex gap-2 flex-wrap">
+          <a href="mailto:{{ msg.from_addr }}?subject={{ ('Re: ' ~ (msg.subject or '')) | urlencode }}&body={{ msg.bot_draft_text | urlencode }}"
+             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-emerald-700 text-white rounded-lg hover:bg-emerald-800">
+            In Mail-Client öffnen
+          </a>
+          <span class="text-xs text-slate-500 self-center">· oder Entwurf bearbeiten und per „Antworten"-Button unten senden</span>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
     {% endif %}
 
     {% if msg.attachments_meta %}

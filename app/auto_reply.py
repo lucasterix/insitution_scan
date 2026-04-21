@@ -83,22 +83,26 @@ CLASSIFIER_SYSTEM = (
     "Du bist der Assistent von Daniel Rupp, Geschäftsführer der Advanced Analytics GmbH "
     "(Marke: ZDKG — Zentrum für Digitale Kommunikation und Governance, IT-Sicherheit + "
     "Pentesting für MVZ, Arztpraxen, Ämter und Körperschaften des öffentlichen Rechts). "
-    "Du bekommst eine eingehende Kunden-E-Mail und entscheidest, wie sie behandelt wird.\n\n"
-    "Drei Aktionen:\n"
-    "  • auto_reply — du beantwortest die Mail sofort selbst in Daniel Rupps Namen.\n"
-    "                 Geeignet für: Routine-Info-Anfragen, allgemeine Rückfragen zur "
-    "                 Leistung/Rechtsrahmen, Bestätigungen, Terminvorschläge die flexibel sind.\n"
-    "  • forward    — die Mail wird an Daniel weitergeleitet. Geeignet für: konkrete "
-    "                 Auftragsanfragen, Vertrags-/Rechnungsfragen, rechtliche Anliegen, "
-    "                 Beschwerden, Datenschutzvorfälle, Kooperationen, Presse, alles "
-    "                 Persönliche, alles was eine individuelle Entscheidung braucht.\n"
-    "  • skip       — nichts tun. Geeignet für: Newsletter, Marketing, Spam, "
-    "                 automatisierte Benachrichtigungen, Out-of-Office-Mails.\n\n"
-    "REGELN für auto_reply:\n"
-    "  - Nur wenn du die Frage eindeutig ohne interne Daten beantworten kannst.\n"
-    "  - Keine Preise, keine konkreten Termine, keine Zusagen die Daniel treffen müsste.\n"
-    "  - Im Zweifel → forward.\n"
-    "  - Antwort in deutschem Sie-Form, 2-4 Absätze, kein Markdown, kein Code-Fence.\n"
+    "Du bekommst eine eingehende E-Mail und entscheidest, wie sie behandelt wird.\n\n"
+    "Drei Aktionen — welche passt:\n"
+    "  • auto_reply — du schreibst die Antwort und sie wird SOFORT verschickt, "
+    "                 in Daniel Rupps Namen. Geeignet für: Routine-Info-Anfragen, "
+    "                 Rückfragen zum Leistungsumfang / Rechtsrahmen, höfliche "
+    "                 Bestätigungen, flexible Terminvorschläge.\n"
+    "  • forward    — du schreibst EBENFALLS eine Antwort, aber SIE WIRD NICHT VERSCHICKT: "
+    "                 stattdessen geht der Entwurf + die Original-Mail an Daniel persönlich, "
+    "                 damit er die Antwort prüfen und selbst absenden kann. Geeignet für: "
+    "                 konkrete Auftragsanfragen, Vertrags-/Rechnungsfragen, rechtliche "
+    "                 Anliegen, Beschwerden, Datenschutzvorfälle, Kooperationen, Presse, "
+    "                 Persönliches, alles was eine individuelle Entscheidung braucht.\n"
+    "  • skip       — keine Antwort nötig, auch NICHT an Daniel weiterleiten. "
+    "                 Geeignet für: Newsletter, Marketing, Spam, automatisierte "
+    "                 Benachrichtigungen, Out-of-Office-Mails, klare Bots.\n\n"
+    "REGELN für den Antwort-Entwurf (reply_text — bei auto_reply UND forward Pflicht, bei skip leer):\n"
+    "  - Deutsches Sie-Form, 2-4 Absätze, kein Markdown, kein Code-Fence, keine Präambel.\n"
+    "  - Keine konkreten Preise, keine festen Termine, keine harten Zusagen.\n"
+    "  - Keine Fakten erfinden — wenn etwas unbekannt ist: höflich rückfragen oder "
+    "    ein Gespräch anbieten.\n"
     "  - Signatur am Ende genau so:\n\n"
     "      Mit freundlichen Grüßen\n\n"
     "      Daniel Rupp\n"
@@ -109,7 +113,7 @@ CLASSIFIER_SYSTEM = (
     '  "action": "auto_reply|forward|skip",\n'
     '  "confidence": 0.0-1.0,\n'
     '  "reasoning": "ein-satz-begründung, max 140 zeichen",\n'
-    '  "reply_text": "nur bei action=auto_reply; sonst leer string"\n'
+    '  "reply_text": "fertiger Antwort-Text bei auto_reply UND forward; leer bei skip"\n'
     '}'
 )
 
@@ -160,29 +164,39 @@ def _send_auto_reply(msg: Message, body_text: str) -> dict:
     )
 
 
-def _forward_to_owner(msg: Message, forward_to: str) -> dict:
-    """Forward the incoming message body (+ original headers as quote) to the
-    fallback address. Not a perfect RFC 5322 forward, but Daniel's inbox will
-    show it with the needed context."""
+def _forward_to_owner(msg: Message, forward_to: str, draft_text: str, reasoning: str) -> dict:
+    """Forward the incoming message + the bot's drafted reply to Daniel.
+
+    The forward is not a raw-mail forward — it's a summary for Daniel to
+    review and act on: here's the original, here's the draft I prepared,
+    send or edit before sending. Reply-To points at the customer so
+    Daniel can hit reply and answer directly."""
     orig_received = msg.received_at.strftime("%d.%m.%Y %H:%M") if msg.received_at else "?"
+    bar = "─" * 60
     body = (
-        f"[Automatisch weitergeleitet vom ZDKG-Bot — ursprünglicher Absender:]\n\n"
+        f"[ZDKG-Bot — Review-Anfrage. Der Entwurf wurde NICHT an den Absender versendet.]\n\n"
+        f"Einstufung: forward · {reasoning}\n\n"
+        f"{bar}\n"
+        f"URSPRÜNGLICHE NACHRICHT\n"
+        f"{bar}\n\n"
         f"Von:     {msg.from_addr}\n"
         f"An:      {msg.to_addr}\n"
         f"Datum:   {orig_received}\n"
-        f"Betreff: {msg.subject or '(kein Betreff)'}\n"
-        f"\n"
-        f"{'─' * 60}\n\n"
-        f"{msg.body_text or '(kein Textinhalt)'}\n"
+        f"Betreff: {msg.subject or '(kein Betreff)'}\n\n"
+        f"{msg.body_text or '(kein Textinhalt)'}\n\n"
+        f"{bar}\n"
+        f"ENTWURF DES BOTS (bitte prüfen und absenden)\n"
+        f"{bar}\n\n"
+        f"{draft_text}\n"
     )
-    fwd_subject = f"[ZDKG-Fwd] {msg.subject or '(kein Betreff)'}"
+    fwd_subject = f"[ZDKG-Review] {msg.subject or '(kein Betreff)'}"
     return mailer.send_offer_email(
         to_email=forward_to,
         subject=fwd_subject,
         body_text=body,
         attachments=[],
         cc=None,
-        reply_to=msg.from_addr,  # so replies to the forward go back to the customer
+        reply_to=msg.from_addr,
         auto_submitted=True,
     )
 
@@ -236,6 +250,7 @@ def process_inbound(session: Session, msg: Message) -> Literal["auto_reply", "fo
     action = str(decision.get("action", "")).lower().strip()
     confidence = float(decision.get("confidence") or 0.0)
     reasoning = str(decision.get("reasoning") or "")[:500]
+    draft_text = (decision.get("reply_text") or "").strip()
 
     msg.bot_confidence = confidence
     msg.bot_reasoning = reasoning
@@ -245,32 +260,38 @@ def process_inbound(session: Session, msg: Message) -> Literal["auto_reply", "fo
         msg.bot_action = "skip"
         return "skip"
 
-    # Minimum-confidence gate for auto_reply ONLY. Forward and skip are safe at any confidence.
+    # For auto_reply / forward we need a draft. No draft → nothing to forward → skip.
+    if action in ("auto_reply", "forward") and not draft_text:
+        msg.bot_action = "skip"
+        msg.bot_reasoning = f"{reasoning} · kein Entwurf erstellt — manuell prüfen"
+        return "skip"
+
+    # Below the auto-reply confidence threshold we still want Daniel to see the draft,
+    # so we downgrade to 'forward'. skip stays skip at any confidence.
     min_conf = float(s.auto_responder_min_confidence or 0.0)
     if action == "auto_reply" and confidence < min_conf:
-        action = "forward"  # downgrade — safer to bother Daniel than to send a shaky reply
+        action = "forward"
+
+    # Store the draft regardless of action (useful for UI inspection + audit).
+    if draft_text:
+        msg.bot_draft_text = draft_text
 
     # ── dry-run early out ────
+    # skip in dry-run → just stamp, no forwarding.
+    # auto_reply/forward in dry-run → stamp with intended action + draft, no sending.
     if s.auto_responder_dry_run:
         msg.bot_action = "dry_run"
         msg.bot_reasoning = f"[{action}] {reasoning}"
         return "dry_run"
 
-    # ── execute ────
+    # ── execute (live) ────
     if action == "skip":
         msg.bot_action = "skip"
         return "skip"
 
     try:
         if action == "auto_reply":
-            reply_text = (decision.get("reply_text") or "").strip()
-            if not reply_text:
-                # LLM said auto_reply but gave no body — defensively forward.
-                _forward_to_owner(msg, s.auto_responder_forward_to)
-                msg.bot_action = "forward"
-                msg.bot_reasoning = f"{reasoning} · kein Entwurf, daher weitergeleitet"
-                return "forward"
-            rec = _send_auto_reply(msg, reply_text)
+            rec = _send_auto_reply(msg, draft_text)
             session.add(Message(
                 scan_id=msg.scan_id,
                 direction="outbound",
@@ -286,12 +307,13 @@ def process_inbound(session: Session, msg: Message) -> Literal["auto_reply", "fo
                 bot_processed_at=now,
                 bot_confidence=confidence,
                 bot_reasoning=reasoning,
+                bot_draft_text=draft_text,
             ))
             msg.bot_action = "auto_reply"
             return "auto_reply"
 
-        # action == forward
-        _forward_to_owner(msg, s.auto_responder_forward_to)
+        # action == forward — we have a draft, send it + original to Daniel for review
+        _forward_to_owner(msg, s.auto_responder_forward_to, draft_text, reasoning)
         msg.bot_action = "forward"
         return "forward"
 
