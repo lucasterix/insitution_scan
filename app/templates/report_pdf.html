@@ -581,7 +581,41 @@ Sicherheitsgewinn bei geringstem Aufwand verspricht:</p>
 <!-- ============ 10. TECHNISCHER ANHANG ============ -->
 <h2>10. Technischer Anhang</h2>
 {% if scan.result.metadata %}
-<pre style="font-size:7pt;background:#f8fafc;border:1px solid #e2e8f0;padding:8pt;border-radius:3pt;white-space:pre-wrap;word-break:break-all;">{{ scan.result.metadata | tojson(indent=2) }}</pre>
+{% set _module_labels = {
+  'dns': 'DNS-Auflösung und Mail-Konfiguration',
+  'subdomain_walk': 'Subdomain-Enumeration',
+  'site_crawl': 'Website-Struktur und Content-Analyse',
+  'tech': 'Technologie-Fingerprinting',
+  'nmap': 'Aktiver Port-Scan (Nmap)',
+  'active_port_scan': 'Port-Scan-Ergebnisse',
+  'vuln_scan': 'Schwachstellen-Abgleich (CVE / KEV / EPSS)',
+  'server_analysis': 'Server- und Hosting-Analyse',
+  'ip_intel': 'IP-Reputation und Geolokalisierung',
+  'tls': 'TLS-/HTTPS-Konfigurationsprüfung',
+  'email_auth': 'E-Mail-Authentifizierung (SPF / DKIM / DMARC)',
+  'leak_check': 'Passwort- und Credential-Leak-Abgleich',
+  'impressum': 'Impressum- und Kontaktdaten-Extraktion',
+  'harvested_emails': 'Öffentlich erreichbare E-Mail-Adressen',
+  'remote_access': 'Remote-Access-Exposition (VPN / RDP / Fernwartung)',
+  'headers': 'HTTP-Security-Header',
+  'cors': 'CORS-Konfigurationsprüfung',
+  'directories': 'Directory-Probing',
+  'secrets': 'Client-seitige Secrets in JavaScript',
+} %}
+{% set _modules_run = [] %}
+{% for key in scan.result.metadata.keys() %}
+  {% if _module_labels.get(key) %}{% set _ = _modules_run.append(_module_labels[key]) %}{% endif %}
+{% endfor %}
+{% if _modules_run %}
+<p>Im Rahmen dieser Prüfung durchgeführte Module:</p>
+<ul style="margin:4pt 0 0 16pt;padding:0;">
+{% for m in _modules_run %}<li>{{ m }}</li>{% endfor %}
+</ul>
+{% endif %}
+<p style="margin-top:8pt;font-size:9pt;color:#475569;">
+  Die vollständigen Roh-Daten (Scan-Logs, HTTP-Header, Zertifikatsketten, CVE-Details)
+  stellen wir auf Anfrage in einem separaten technischen Datensatz zur Verfügung.
+</p>
 {% endif %}
 
 <!-- ============ 11. HAFTUNGSAUSSCHLUSS ============ -->
