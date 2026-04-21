@@ -37,7 +37,6 @@ async def _tpl(request: Request, session: AsyncSession, template: str, ctx: dict
     return templates.TemplateResponse(request, template, ctx)
 
 
-@router.get("/", response_class=HTMLResponse)
 def _summarize_for_list(scan: Scan) -> dict | None:
     """Compact per-scan summary for the dashboard list row:
       - grade letter + color
@@ -70,6 +69,7 @@ def _summarize_for_list(scan: Scan) -> dict | None:
         return None
 
 
+@router.get("/", response_class=HTMLResponse)
 async def index(
     request: Request,
     session: AsyncSession = Depends(get_session),
