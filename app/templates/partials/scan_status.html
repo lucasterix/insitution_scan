@@ -576,7 +576,7 @@
         <textarea name="body" rows="10" required
                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">{% if contact and contact.manager %}Sehr geehrte/r {{ contact.manager }}{% else %}Sehr geehrte Damen und Herren{% endif %},
 
-im Rahmen einer automatisierten externen Sicherheitsprüfung Ihrer Domain {{ scan.target_domain }} haben wir {{ offer["items"] | selectattr("severity", "ne", "info") | list | length }} handlungsrelevante Befunde identifiziert — davon {{ offer.by_severity.critical.count }} kritische und {{ offer.by_severity.high.count }} hohe.
+im Rahmen unserer externen Sicherheitsprüfung Ihrer Domain {{ scan.target_domain }} haben wir {{ offer["items"] | selectattr("severity", "ne", "info") | list | length }} handlungsrelevante Befunde identifiziert — davon {{ offer.by_severity.critical.count }} kritische und {{ offer.by_severity.high.count }} hohe.
 
 Im Anhang finden Sie:
   • den vollständigen Prüfbericht

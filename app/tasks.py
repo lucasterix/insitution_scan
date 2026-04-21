@@ -29,6 +29,110 @@ def _sync_engine():
         )
 
 
+def _format_eur(cents_or_eur) -> str:
+    """German-formatted EUR string. Accepts float/int euros."""
+    try:
+        n = float(cents_or_eur)
+    except (TypeError, ValueError):
+        return "0,00 €"
+    return f"{n:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _compose_batch_offer(scan) -> tuple[str, str]:
+    """Build subject + body for the batch auto-offer mail.
+
+    Individualised: references the institution name, cites concrete
+    severity counts + offer totals, and opens with an institution-
+    specific greeting. Intentionally avoids words like "automatisiert"
+    — the mail is presented as expert-authored, because a human reviews
+    it in the /inbox scheduled banner before 08:00.
+    """
+    from app.compliance.offer import build_offer
+
+    inst = (scan.institution_name or "").strip()
+    domain = scan.target_domain
+    rate = (scan.context or {}).get("hourly_rate_eur") if scan.context else None
+    try:
+        offer = build_offer(scan.result or {}, hourly_rate_eur=rate) or {}
+    except Exception:  # noqa: BLE001
+        offer = {}
+
+    findings = (scan.result or {}).get("findings") or []
+    sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for f in findings:
+        s_ = f.get("severity")
+        if s_ in sev:
+            sev[s_] += 1
+    actionable = sev["critical"] + sev["high"] + sev["medium"] + sev["low"]
+
+    # Opening: prefer the institution name if it reads like a proper noun,
+    # else fall back to the generic greeting.
+    if inst and any(ch.isalpha() for ch in inst):
+        greeting = f"sehr geehrte Damen und Herren des {inst},"
+    else:
+        greeting = "sehr geehrte Damen und Herren,"
+
+    subject = f"Prüfbericht {domain} — Befunde und Angebot"
+
+    # Findings line — only mention severities that are actually present, so
+    # the mail doesn't claim "0 kritische" when there are none.
+    sev_parts: list[str] = []
+    if sev["critical"]:
+        sev_parts.append(f"{sev['critical']} kritische")
+    if sev["high"]:
+        sev_parts.append(f"{sev['high']} hohe")
+    if sev["medium"]:
+        sev_parts.append(f"{sev['medium']} mittlere")
+    if sev_parts:
+        sev_line = (
+            f"im Rahmen unserer externen Sicherheitsprüfung Ihrer Domain {domain} "
+            f"haben wir {actionable} handlungsrelevante Befunde identifiziert — "
+            f"darunter {', '.join(sev_parts)}."
+        )
+    else:
+        sev_line = (
+            f"im Rahmen unserer externen Sicherheitsprüfung Ihrer Domain {domain} "
+            f"ergeben sich aktuell keine als kritisch oder hoch eingestuften Befunde. "
+            f"Wir haben die Prüfung dennoch vollständig dokumentiert."
+        )
+
+    # Offer line — only if we have figures.
+    offer_line = ""
+    if offer and offer.get("total_hours"):
+        offer_line = (
+            f"Unser Aufwands-Angebot weist einen Gesamtaufwand von ca. "
+            f"{offer['total_hours']:.1f} Stunden aus (Stundensatz: "
+            f"{_format_eur(offer.get('hourly_rate_eur', 0))}): "
+            f"{_format_eur(offer.get('net_eur', 0))} netto, "
+            f"{_format_eur(offer.get('gross_eur', 0))} brutto. "
+            f"Abgerechnet wird spitz nach tatsächlichem Aufwand."
+        )
+
+    body_parts = [
+        greeting,
+        "",
+        sev_line,
+        "",
+        "Im Anhang finden Sie:",
+        "  • den vollständigen Prüfbericht",
+        "  • ein Aufwands-Angebot mit Stundenkalkulation",
+    ]
+    if offer_line:
+        body_parts += ["", offer_line]
+    body_parts += [
+        "",
+        "Für eine Umsetzung oder Rückfragen erreichen Sie uns unter +49 176 43677735 "
+        "oder per Antwort auf diese Mail.",
+        "",
+        "Mit freundlichen Grüßen",
+        "",
+        "Daniel Rupp",
+        "Advanced Analytics GmbH — ZDKG",
+        "daniel.rupp@zdkg.de · zdkg.de",
+    ]
+    return subject, "\n".join(body_parts)
+
+
 def _queue_auto_offer_if_configured(engine, scan_id: str) -> None:
     """If the scan was created via CSV batch import with auto_offer_* set,
     create a ScheduledEmail row that the dispatcher will send at the
@@ -46,22 +150,7 @@ def _queue_auto_offer_if_configured(engine, scan_id: str) -> None:
         if scan.auto_offer_dispatched_at:
             return  # already queued
 
-        # Compose a neutral default body. The scheduled banner on /inbox lets
-        # the user review and cancel before the actual send time.
-        subject = f"IT-Sicherheitsprüfung {scan.target_domain} — Prüfbericht + Angebot"
-        body = (
-            "Sehr geehrte Damen und Herren,\n\n"
-            f"anbei erhalten Sie den Prüfbericht unserer IT-Sicherheitsprüfung für "
-            f"{scan.institution_name or scan.target_domain} ({scan.target_domain}) "
-            "sowie unser unverbindliches Angebot zur Behebung der festgestellten Befunde.\n\n"
-            "Die Prüfung erfolgte im Rahmen unserer Vorsorgetätigkeit für Einrichtungen "
-            "des Gesundheitssektors — Grundlage sind KBV §390 SGB V, DSGVO Art. 32 und "
-            "ggf. NIS2UmsuCG. Für Rückfragen oder einen kurzen Termin erreichen Sie uns "
-            "unter +49 176 43677735 oder per Antwort auf diese Mail.\n\n"
-            "Mit freundlichen Grüßen\n\n"
-            "Daniel Rupp\n"
-            "Advanced Analytics GmbH — ZDKG"
-        )
+        subject, body = _compose_batch_offer(scan)
 
         sched = ScheduledEmail(
             inbound_message_id=None,
