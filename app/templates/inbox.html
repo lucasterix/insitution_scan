@@ -35,8 +35,16 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       </span>
       <div class="flex-1 min-w-0">
-        <div class="text-sm font-bold text-sky-900">
-          {{ scheduled_pending|length }} geplante Nachricht{{ 'en' if scheduled_pending|length != 1 else '' }} in der Warteschleife
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div class="text-sm font-bold text-sky-900">
+            {{ scheduled_pending|length }} geplante Nachricht{{ 'en' if scheduled_pending|length != 1 else '' }} in der Warteschleife
+          </div>
+          <form method="post" action="/scheduled/cancel-all"
+                onsubmit="return confirm('Wirklich ALLE {{ scheduled_pending|length }} geplanten Mails stornieren? Kann nicht rückgängig gemacht werden.');">
+            <button type="submit" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-rose-200 text-rose-700 rounded-lg hover:bg-rose-50">
+              Alle abbrechen
+            </button>
+          </form>
         </div>
         <ul class="mt-1.5 divide-y divide-sky-200 text-xs">
           {% for s in scheduled_pending %}

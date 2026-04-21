@@ -165,7 +165,7 @@ def _probe_connector_paths(domain: str, result: ScanResult, baselines: set[str])
                 r = client.get(f"https://{domain}{path}")
                 if r.status_code not in (200, 401, 403):
                     return None
-                body = r.text[:4096] if "text" in r.headers.get("content-type", "").lower() else ""
+                body = r.text if "text" in r.headers.get("content-type", "").lower() else ""
 
                 # 401/403 responses are interesting even without body match — they still indicate the app exists.
                 if r.status_code in (401, 403):
@@ -176,7 +176,8 @@ def _probe_connector_paths(domain: str, result: ScanResult, baselines: set[str])
                         "server": r.headers.get("server", ""),
                     }
 
-                # 200 case: reject SPA catch-all.
+                # 200 case: reject SPA catch-all. Pass the full body so hash
+                # and length comparison match the baseline window.
                 if is_catchall(body, baselines):
                     return None
 
@@ -298,8 +299,17 @@ def _probe_health_paths(domain: str, result: ScanResult, baselines: set[str]) ->
                 r = client.get(f"https://{domain}{path}")
                 if r.status_code != 200:
                     return None
-                body = r.text[:4096] if "text" in r.headers.get("content-type", "").lower() else ""
-                if is_catchall(body, baselines):
+                ct = r.headers.get("content-type", "").lower()
+                # API endpoints for patient/medical data MUST return JSON.
+                # If an /api/* path responds with HTML, it's the SPA catch-all,
+                # never a real API leak. Hard-reject here before the baseline
+                # compare (which used to miss because of a body-truncation
+                # mismatch that fingerprinted different windows on each side).
+                if path.startswith("/api/") and "json" not in ct:
+                    return None
+                # SPA baseline defense: hand the FULL response body over so
+                # _body_hash and length comparison work on consistent windows.
+                if is_catchall(r.text, baselines):
                     return None
                 return {"path": path, "status": r.status_code, "sev": sev.value, "label": label, "content_type": r.headers.get("content-type", "")}
         except httpx.HTTPError:
@@ -317,16 +327,19 @@ def _probe_health_paths(domain: str, result: ScanResult, baselines: set[str]) ->
         # Separate API vs. normal path severity: API hits are always emitted, path hits only as INFO grouped.
         api_hits = [p for p in found_paths if p["path"].startswith("/api/")]
         if api_hits:
+            _sev_by_value = {s.value: s for s in Severity}
             for hit in api_hits:
+                hit_sev = _sev_by_value.get(hit.get("sev"), Severity.CRITICAL)
                 result.add(Finding(
                     id=f"healthcare.api_exposed.{hit['path'].strip('/').replace('/', '_')}",
                     title=f"{hit['label']} öffentlich erreichbar: {hit['path']}",
                     description=(
-                        f"Der API-Endpunkt {hit['path']} antwortet mit HTTP 200 ohne Authentifizierung. "
+                        f"Der API-Endpunkt {hit['path']} antwortet mit HTTP 200 und "
+                        f"Content-Type {hit.get('content_type') or 'unbekannt'}. "
                         "APIs für Patienten-/Medizin-Daten dürfen niemals unauthentisiert "
                         "erreichbar sein."
                     ),
-                    severity=Severity.CRITICAL,
+                    severity=hit_sev,
                     category="Healthcare / API",
                     evidence=hit,
                     recommendation="Endpoint hinter Authentifizierung/VPN stellen oder entfernen.",

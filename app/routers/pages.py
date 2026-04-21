@@ -143,6 +143,25 @@ async def index(
     # so the list shows criticality + price without a click-through.
     summaries = {s.id: _summarize_for_list(s) for s in scans}
 
+    # Pending offer mails per scan on this page: map scan_id → ScheduledEmail
+    # so the row can show "Mail geplant für …" and let the user stop it in one click.
+    scan_ids_on_page = [s.id for s in scans]
+    pending_by_scan: dict[str, dict] = {}
+    if scan_ids_on_page:
+        q_sched = select(ScheduledEmail).where(
+            ScheduledEmail.status == "queued",
+            ScheduledEmail.scan_id.in_(scan_ids_on_page),
+        )
+        for sched in (await session.execute(q_sched)).scalars():
+            # Take the earliest queued per scan.
+            existing = pending_by_scan.get(sched.scan_id or "")
+            if not existing or sched.scheduled_for < existing["scheduled_for"]:
+                pending_by_scan[sched.scan_id or ""] = {
+                    "id": sched.id,
+                    "scheduled_for": sched.scheduled_for,
+                    "to_addr": sched.to_addr,
+                }
+
     return await _tpl(
         request, session, "index.html",
         {
@@ -151,6 +170,7 @@ async def index(
             "status_filter": status, "q": q,
             "page": page, "total_pages": total_pages, "per_page": PER_PAGE,
             "total_matching": total_matching,
+            "pending_offer_by_scan": pending_by_scan,
         },
     )
 
@@ -1144,6 +1164,38 @@ async def send_reply(
     # Redirect back to the scan if we have one, else inbox.
     target = f"/scans/{msg.scan_id}" if msg.scan_id else "/inbox"
     return RedirectResponse(url=target, status_code=303)
+
+
+@router.post("/scheduled/cancel-all")
+async def cancel_all_scheduled(
+    request: Request, session: AsyncSession = Depends(get_session)
+) -> Response:
+    """Bulk-cancel every queued ScheduledEmail in the system.
+
+    Use case: a batch has been queued but the user wants to stop ALL pending
+    sends before they go out (e.g. found a bug, wants to re-scan). Auth-gated
+    so a misclick is impossible without login.
+    """
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    from sqlalchemy import update as _sql_update
+    res = await session.execute(
+        _sql_update(ScheduledEmail)
+        .where(ScheduledEmail.status == "queued")
+        .values(status="cancelled",
+                error_message=f"bulk-cancelled by {user.email} at {datetime.now(timezone.utc).isoformat()}")
+    )
+    await session.commit()
+    count = res.rowcount or 0
+    if request.headers.get("hx-request"):
+        return HTMLResponse(
+            f'<div class="rounded-lg bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-900">'
+            f'{count} geplante Nachricht(en) storniert.'
+            '</div>'
+        )
+    return RedirectResponse(url="/inbox", status_code=303)
 
 
 @router.post("/scheduled/{sched_id}/cancel")

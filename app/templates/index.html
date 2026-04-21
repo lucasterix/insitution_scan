@@ -156,6 +156,15 @@
                 {% endif %}
               </div>
               {% endif %}
+
+              {# --- Auto-Offer-Mail Hinweis, falls noch in der Warteschleife --- #}
+              {% set pending = pending_offer_by_scan.get(s.id) if pending_offer_by_scan else None %}
+              {% if pending %}
+              <div class="flex items-center gap-1.5 mt-1.5 text-[11px] text-sky-700">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span>Mail an <strong>{{ pending.to_addr }}</strong> geplant für <strong>{{ pending.scheduled_for.strftime('%d.%m. %H:%M') }}</strong></span>
+              </div>
+              {% endif %}
             </div>
 
             {# --- Right-side: brutto + hours --- #}

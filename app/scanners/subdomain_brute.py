@@ -80,8 +80,38 @@ def _resolve(fqdn: str) -> list[str] | None:
         return None
 
 
+def _detect_wildcard(domain: str) -> set[str] | None:
+    """Return the set of wildcard IPs if *.domain resolves, else None.
+
+    Probes two different guaranteed-nonexistent labels. If both resolve
+    AND to the same IP set, the domain has a DNS wildcard and any
+    brute-force results are meaningless (every label would match).
+    """
+    import hashlib
+    probe_a = f"mvzscan-wildcard-{hashlib.md5(domain.encode()).hexdigest()[:10]}.{domain}"
+    probe_b = f"mvzscan-wildcard-{hashlib.md5((domain + '-alt').encode()).hexdigest()[:10]}.{domain}"
+    ips_a = set(_resolve(probe_a) or ())
+    ips_b = set(_resolve(probe_b) or ())
+    if ips_a and ips_a == ips_b:
+        return ips_a
+    return None
+
+
 def brute_subdomains(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step(f"Subdomain-Brute-Force ({len(WORDLIST)} Wörter)", 72)
+
+    # DNS wildcard check: if *.domain resolves, the brute-force can't tell
+    # apart real from wildcard-injected FQDNs. Skip and record a metadata
+    # marker so downstream consumers know.
+    wildcard_ips = _detect_wildcard(domain)
+    if wildcard_ips:
+        result.metadata["subdomain_brute"] = {
+            "wordlist_size": len(WORDLIST),
+            "new_found": 0,
+            "skipped_reason": "dns_wildcard",
+            "wildcard_ips": sorted(wildcard_ips),
+        }
+        return
 
     known = set(result.metadata.get("subdomains") or [])
     newly_found: dict[str, list[str]] = {}
