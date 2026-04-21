@@ -41,6 +41,8 @@ async def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS ix_messages_bot_action ON messages (bot_action)",
             # scan_episodes table is created by create_all above; the unique
             # index is declared in the model. Nothing extra needed here.
+            # scheduled_emails is created by create_all; supporting indexes
+            # are declared on the model. No extra DDL required.
         ):
             await conn.execute(text(ddl))
 

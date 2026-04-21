@@ -192,15 +192,42 @@
 
       <div id="reply-result"></div>
 
+      {# ======= Versand-Zeitpunkt ======= #}
+      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Versand</div>
+        <div class="flex flex-wrap gap-2 text-sm">
+          <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg cursor-pointer hover:border-emerald-400">
+            <input type="radio" name="send_when" value="now" checked
+                   onchange="updateScheduledFor()" class="accent-emerald-600">
+            <span>Jetzt senden</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg cursor-pointer hover:border-emerald-400">
+            <input type="radio" name="send_when" value="tomorrow8"
+                   onchange="updateScheduledFor()" class="accent-emerald-600">
+            <span>Morgen 08:00</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg cursor-pointer hover:border-emerald-400">
+            <input type="radio" name="send_when" value="custom"
+                   onchange="updateScheduledFor()" class="accent-emerald-600">
+            <span>Eigener Zeitpunkt</span>
+          </label>
+          <input type="datetime-local" id="custom-dt"
+                 onchange="updateScheduledFor()"
+                 class="hidden px-2 py-1.5 border border-slate-300 rounded-lg text-sm">
+        </div>
+        <input type="hidden" name="scheduled_for" id="scheduled-for-hidden" value="">
+        <p id="send-info" class="text-xs text-slate-500 mt-2">Nachricht wird sofort beim Klick auf „Senden" verschickt.</p>
+      </div>
+
       <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
         <button type="button" onclick="closeReplyBox()"
                 class="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50">
           Abbrechen
         </button>
-        <button type="submit"
+        <button type="submit" id="send-btn"
                 class="inline-flex items-center gap-2 px-5 py-2 bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 text-sm font-medium">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          Antwort senden
+          <span id="send-btn-label">Antwort senden</span>
         </button>
       </div>
     </form>
@@ -227,6 +254,66 @@
     }
     function closeReplyBox() {
       document.getElementById('reply-box').classList.add('hidden');
+    }
+
+    // Scheduling UI: keep the hidden scheduled_for field in sync with the
+    // radio group. Empty string = send-now. ISO string = park it.
+    function _pad(n) { return String(n).padStart(2, '0'); }
+    function _localIsoFor(date) {
+      // Format: 2026-04-22T08:00 (no seconds, no tz) — browser's local wall-clock.
+      // Server treats this as Europe/Berlin.
+      return date.getFullYear() + '-' + _pad(date.getMonth() + 1) + '-' +
+             _pad(date.getDate()) + 'T' + _pad(date.getHours()) + ':' + _pad(date.getMinutes());
+    }
+    function _formatHumanLocal(date) {
+      return date.toLocaleString('de-DE', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+    }
+    function updateScheduledFor() {
+      const picked = document.querySelector('input[name="send_when"]:checked');
+      const customInput = document.getElementById('custom-dt');
+      const hidden = document.getElementById('scheduled-for-hidden');
+      const info = document.getElementById('send-info');
+      const label = document.getElementById('send-btn-label');
+
+      customInput.classList.add('hidden');
+
+      if (!picked || picked.value === 'now') {
+        hidden.value = '';
+        info.textContent = 'Nachricht wird sofort beim Klick auf „Senden" verschickt.';
+        label.textContent = 'Antwort senden';
+        return;
+      }
+      if (picked.value === 'tomorrow8') {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(8, 0, 0, 0);
+        hidden.value = _localIsoFor(d);
+        info.textContent = 'Wird automatisch am ' + _formatHumanLocal(d) + ' versendet.';
+        label.textContent = 'Planen für morgen 08:00';
+        return;
+      }
+      if (picked.value === 'custom') {
+        customInput.classList.remove('hidden');
+        if (!customInput.value) {
+          // Default custom pick: tomorrow 09:00 local.
+          const d = new Date();
+          d.setDate(d.getDate() + 1);
+          d.setHours(9, 0, 0, 0);
+          customInput.value = _localIsoFor(d);
+        }
+        hidden.value = customInput.value;
+        const d = new Date(customInput.value);
+        if (isNaN(d.getTime())) {
+          info.textContent = 'Bitte gültiges Datum wählen.';
+          label.textContent = 'Zeit wählen';
+          return;
+        }
+        info.textContent = 'Wird automatisch am ' + _formatHumanLocal(d) + ' versendet.';
+        label.textContent = 'Planen';
+      }
     }
   </script>
   {% endif %}

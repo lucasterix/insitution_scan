@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -11,7 +11,7 @@ from app.compliance.analysis import build_kbv_summary
 from app.compliance.dashboard import build_dashboard
 from app.compliance.offer import build_offer, format_eur
 from app.db import get_session
-from app.models import Message, Scan
+from app.models import Message, Scan, ScheduledEmail
 from app.queue import redis_conn, scan_queue
 from app.scanners.osint import _normalize_domain
 from app.tasks import run_scan_job
@@ -417,6 +417,13 @@ async def inbox(
         )).scalar() or 0
         draft_counts[action] = c
 
+    # Pending scheduled replies: show them in a banner so the user can cancel
+    # before they go out. Sorted ascending by due time so the next one is on top.
+    q_sched = select(ScheduledEmail).where(
+        ScheduledEmail.status == "queued"
+    ).order_by(ScheduledEmail.scheduled_for.asc()).limit(20)
+    scheduled_pending = list((await session.execute(q_sched)).scalars().all())
+
     return await _tpl(
         request, session, "inbox.html",
         {
@@ -424,6 +431,7 @@ async def inbox(
             "direction_filter": direction, "q": q, "unread_only": bool(unread),
             "page": page, "total_pages": total_pages, "total": total,
             "draft_counts": draft_counts,
+            "scheduled_pending": scheduled_pending,
         },
     )
 
@@ -598,6 +606,35 @@ async def draft_reply(
     return HTMLResponse(draft)
 
 
+def _parse_scheduled_for(raw: str | None) -> datetime | None:
+    """Parse the scheduled_for form field.
+
+    Accepts ISO 8601 with or without timezone. Bare datetime-local values
+    (no tz) are assumed to be Europe/Berlin — that's what the browser
+    <input type="datetime-local"> emits. Returns None if empty / invalid /
+    in the past (caller treats None as 'send now').
+    """
+    if not raw or not raw.strip():
+        return None
+    raw = raw.strip()
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        # datetime-local is local wall-clock — treat as Europe/Berlin.
+        try:
+            from zoneinfo import ZoneInfo
+            dt = dt.replace(tzinfo=ZoneInfo("Europe/Berlin"))
+        except Exception:  # noqa: BLE001
+            dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc)
+    # A time ≤ now + 30s is treated as "send now" (avoids flaky dispatcher races).
+    if dt <= datetime.now(timezone.utc) + timedelta(seconds=30):
+        return None
+    return dt
+
+
 @router.post("/messages/{message_id}/send-reply")
 async def send_reply(
     request: Request,
@@ -605,6 +642,7 @@ async def send_reply(
     subject: str = Form(...),
     body: str = Form(...),
     cc: str = Form(""),
+    scheduled_for: str = Form(""),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     user = await get_current_user(request, session)
@@ -624,6 +662,34 @@ async def send_reply(
     # Thread headers: point In-Reply-To at the original Message-ID, append to References.
     refs = (msg.references or "") + (" " + msg.message_id if msg.message_id else "")
     refs = refs.strip() or None
+
+    # Scheduled path: park the reply and let the poller tick dispatch it.
+    send_at = _parse_scheduled_for(scheduled_for)
+    if send_at is not None:
+        sched = ScheduledEmail(
+            inbound_message_id=msg.id,
+            scan_id=msg.scan_id,
+            to_addr=msg.from_addr,
+            cc_addr=cc or None,
+            subject=subject,
+            body_text=body,
+            in_reply_to=msg.message_id,
+            references=refs,
+            scheduled_for=send_at,
+            status="queued",
+        )
+        session.add(sched)
+        await session.commit()
+        local_str = send_at.astimezone().strftime("%d.%m.%Y %H:%M")
+        if request.headers.get("hx-request"):
+            return HTMLResponse(
+                '<div class="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-900">'
+                f'Antwort geplant für <strong>{local_str}</strong> — wird automatisch an '
+                f'{msg.from_addr} versendet.'
+                '</div>'
+            )
+        target = f"/scans/{msg.scan_id}" if msg.scan_id else "/inbox"
+        return RedirectResponse(url=target, status_code=303)
 
     try:
         rec = mailer.send_offer_email(
@@ -661,6 +727,28 @@ async def send_reply(
     # Redirect back to the scan if we have one, else inbox.
     target = f"/scans/{msg.scan_id}" if msg.scan_id else "/inbox"
     return RedirectResponse(url=target, status_code=303)
+
+
+@router.post("/scheduled/{sched_id}/cancel")
+async def cancel_scheduled(
+    request: Request, sched_id: str, session: AsyncSession = Depends(get_session)
+) -> Response:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    sched = await session.get(ScheduledEmail, sched_id)
+    if not sched:
+        raise HTTPException(status_code=404, detail="Geplante Mail nicht gefunden")
+    if sched.status != "queued":
+        raise HTTPException(status_code=400, detail=f"Status ist '{sched.status}' — nicht mehr abbrechbar")
+
+    sched.status = "cancelled"
+    await session.commit()
+
+    if request.headers.get("hx-request"):
+        return Response(status_code=200)
+    return RedirectResponse(url="/inbox", status_code=303)
 
 
 @router.post("/messages/{message_id}/delete")

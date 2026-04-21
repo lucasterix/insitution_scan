@@ -32,7 +32,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import Message, Scan
+from app.models import Message, Scan, ScheduledEmail
 
 log = logging.getLogger("imap_poller")
 
@@ -206,6 +206,74 @@ def _fetch_since(conn: imaplib.IMAP4_SSL, folder: str, since_date: datetime) -> 
     return out
 
 
+async def _dispatch_due_scheduled() -> dict:
+    """Send any ScheduledEmail rows whose scheduled_for <= now().
+
+    Each row is handled independently — a mailer failure marks that one as
+    'failed' with the error message but doesn't block the others.
+    """
+    from app import mailer
+    if not mailer.is_enabled():
+        return {"scheduled_checked": 0, "scheduled_sent": 0, "scheduled_skipped": "smtp-disabled"}
+
+    now = datetime.now(timezone.utc)
+    sent = 0
+    failed = 0
+    rows: list = []
+    async with SessionLocal() as session:
+        q = select(ScheduledEmail).where(
+            ScheduledEmail.status == "queued",
+            ScheduledEmail.scheduled_for <= now,
+        ).limit(50)
+        res = await session.execute(q)
+        rows = list(res.scalars())
+        for sched in rows:
+            try:
+                rec = mailer.send_offer_email(
+                    to_email=sched.to_addr,
+                    subject=sched.subject,
+                    body_text=sched.body_text,
+                    attachments=[],
+                    cc=sched.cc_addr or None,
+                    in_reply_to=sched.in_reply_to,
+                    references=sched.references,
+                )
+            except Exception as e:  # noqa: BLE001
+                sched.status = "failed"
+                sched.error_message = f"{type(e).__name__}: {e}"[:500]
+                failed += 1
+                log.warning("scheduled send failed for %s: %s", sched.id, e)
+                continue
+
+            out_msg = Message(
+                scan_id=sched.scan_id,
+                direction="outbound",
+                message_id=rec["message_id"],
+                in_reply_to=rec["in_reply_to"],
+                references=rec["references"],
+                from_addr=rec["from_addr"],
+                to_addr=rec["to_addr"],
+                cc_addr=rec["cc"],
+                subject=rec["subject"],
+                body_text=rec["body_text"],
+            )
+            session.add(out_msg)
+            await session.flush()
+            sched.status = "sent"
+            sched.sent_at = datetime.now(timezone.utc)
+            sched.sent_message_id = out_msg.id
+            sent += 1
+        if rows:
+            try:
+                await session.commit()
+            except Exception as e:  # noqa: BLE001
+                await session.rollback()
+                log.error("scheduled dispatch commit failed: %s", e)
+    if sent or failed:
+        log.info("scheduled dispatch: sent=%d failed=%d", sent, failed)
+    return {"scheduled_checked": len(rows), "scheduled_sent": sent, "scheduled_failed": failed}
+
+
 async def poll_once() -> dict:
     """Fetch any new mail from IMAP, persist + match. Returns a small summary dict."""
     s = get_settings()
@@ -312,7 +380,19 @@ async def poll_once() -> dict:
         log.info("IMAP poll: %d new message(s) stored", new_count)
     if errors:
         log.warning("IMAP poll: %d parse error(s) skipped", errors)
-    return {"checked": len(raw_items), "new": new_count, "errors": errors}
+
+    # Send any scheduled replies whose time has arrived. Runs every tick so
+    # the accuracy is bounded by IMAP_POLL_SECONDS (default ~120s).
+    try:
+        dispatch = await _dispatch_due_scheduled()
+    except Exception as e:  # noqa: BLE001
+        log.warning("dispatch_due_scheduled failed: %s: %s", type(e).__name__, e)
+        dispatch = {"scheduled_error": str(e)[:200]}
+
+    return {
+        "checked": len(raw_items), "new": new_count, "errors": errors,
+        **{k: v for k, v in dispatch.items() if v},
+    }
 
 
 # ---------- Entrypoint ----------

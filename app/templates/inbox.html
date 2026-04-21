@@ -27,6 +27,38 @@
   </div>
   <div id="poll-result" class="mb-3"></div>
 
+  {# Geplante Nachrichten — Banner, falls welche in der Warteschleife sind #}
+  {% if scheduled_pending and scheduled_pending|length > 0 %}
+  <div class="mb-4 rounded-xl border-2 border-sky-300 bg-sky-50 px-4 py-3">
+    <div class="flex items-start gap-3">
+      <span class="inline-flex w-9 h-9 rounded-full bg-sky-500 text-white items-center justify-center flex-shrink-0">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </span>
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-bold text-sky-900">
+          {{ scheduled_pending|length }} geplante Nachricht{{ 'en' if scheduled_pending|length != 1 else '' }} in der Warteschleife
+        </div>
+        <ul class="mt-1.5 divide-y divide-sky-200 text-xs">
+          {% for s in scheduled_pending %}
+          <li class="py-1.5 flex items-center justify-between gap-3">
+            <div class="flex-1 min-w-0">
+              <div class="text-sky-900 truncate">
+                <span class="font-semibold">{{ s.scheduled_for.strftime('%d.%m. %H:%M') }}</span>
+                · An {{ s.to_addr }} · <span class="text-sky-700">{{ s.subject or '(ohne Betreff)' }}</span>
+              </div>
+            </div>
+            <form method="post" action="/scheduled/{{ s.id }}/cancel"
+                  onsubmit="return confirm('Geplanten Versand abbrechen?');">
+              <button type="submit" class="text-rose-600 hover:text-rose-800 text-xs">Abbrechen</button>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {# KI-Bot Draft-Alert Banner — erscheint wenn dry_run oder forward Drafts warten #}
   {% set total_drafts = (draft_counts.dry_run if draft_counts else 0) + (draft_counts.forward if draft_counts else 0) %}
   {% if total_drafts > 0 %}

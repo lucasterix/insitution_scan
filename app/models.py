@@ -89,6 +89,48 @@ class Message(Base):
     bot_draft_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class ScheduledEmail(Base):
+    """Outbound reply queued for later delivery.
+
+    Created when the user picks "Morgen 08:00" / "Benutzerdefiniert" in the
+    reply composer. A separate loop (invoked from imap_poller.poll_once)
+    picks up rows with status='queued' and scheduled_for <= now(), sends
+    them via mailer.send_offer_email, and flips status to 'sent' (or
+    'failed' with error_message).
+    """
+    __tablename__ = "scheduled_emails"
+    __table_args__ = (
+        Index("ix_scheduled_emails_status_due", "status", "scheduled_for"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    # The inbound Message this reply belongs to — mainly for threading headers
+    # + showing the scheduled item next to its source conversation.
+    inbound_message_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    scan_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("scans.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    to_addr: Mapped[str] = mapped_column(String(320))
+    cc_addr: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    subject: Mapped[str] = mapped_column(String(500))
+    body_text: Mapped[str] = mapped_column(Text)
+    # Threading headers captured at compose time so the delayed send still
+    # lands in-thread even if the originating Message got deleted meanwhile.
+    in_reply_to: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    references: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    # queued | sent | cancelled | failed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_message_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class ScanEpisode(Base):
     """Episodic memory of findings per target domain.
 
