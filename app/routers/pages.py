@@ -663,6 +663,29 @@ async def send_reply(
     return RedirectResponse(url=target, status_code=303)
 
 
+@router.post("/messages/{message_id}/delete")
+async def delete_message(
+    request: Request, message_id: str, session: AsyncSession = Depends(get_session)
+) -> Response:
+    """Remove the message from the local DB only. Gmail/IMAP stays untouched."""
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    msg = await session.get(Message, message_id)
+    if not msg:
+        raise HTTPException(status_code=404, detail="Nachricht nicht gefunden")
+
+    await session.delete(msg)
+    await session.commit()
+
+    # HTMX: return empty body so the caller can swap the row/container out.
+    # Regular POST from message_detail: redirect to inbox.
+    if request.headers.get("hx-request"):
+        return Response(status_code=200)
+    return RedirectResponse(url="/inbox", status_code=303)
+
+
 @router.post("/inbox/poll")
 async def inbox_poll(
     request: Request, session: AsyncSession = Depends(get_session)
