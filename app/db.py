@@ -43,6 +43,12 @@ async def init_db() -> None:
             # index is declared in the model. Nothing extra needed here.
             # scheduled_emails is created by create_all; supporting indexes
             # are declared on the model. No extra DDL required.
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS batch_id VARCHAR(36)",
+            "CREATE INDEX IF NOT EXISTS ix_scans_batch_id ON scans (batch_id)",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS auto_offer_recipient VARCHAR(320)",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS auto_offer_scheduled_for TIMESTAMPTZ",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS auto_offer_dispatched_at TIMESTAMPTZ",
+            "ALTER TABLE scheduled_emails ADD COLUMN IF NOT EXISTS include_offer_pdfs BOOLEAN NOT NULL DEFAULT FALSE",
         ):
             await conn.execute(text(ddl))
 

@@ -28,6 +28,10 @@
           Posteingang
           {% if nav_unread_msgs and nav_unread_msgs > 0 %}<span class="inline-flex items-center justify-center px-1.5 h-4 min-w-[18px] text-[10px] font-bold bg-sky-600 text-white rounded-full">{{ nav_unread_msgs }}</span>{% endif %}
         </a>
+        <a href="/batch" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition" title="CSV-Batch-Import">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          CSV-Batch
+        </a>
         <a href="/scans/new" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium shadow-sm transition">
           + Neuer Scan
         </a>

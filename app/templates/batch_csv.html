@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}CSV-Batch-Import{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto">
+  <a href="/" class="text-sm text-slate-500 hover:text-slate-700">← Dashboard</a>
+  <h1 class="text-2xl font-bold text-slate-900 mt-2">CSV-Batch-Import</h1>
+  <p class="text-sm text-slate-500">Eine Institutionsliste hochladen. Alle Domains werden gescannt, die Angebote gehen morgen ab 08:00 Uhr getaktet raus.</p>
+
+  <div class="mt-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+    <div class="font-semibold mb-1">So funktioniert's</div>
+    <ol class="list-decimal ml-5 space-y-0.5">
+      <li>CSV mit Spalten <code class="bg-white px-1 rounded font-mono text-xs">name,email</code> hochladen (mehrere E-Mails durch <code>;</code> trennbar).</li>
+      <li>Die Domain wird aus der ersten E-Mail-Adresse gezogen. Doppelte Domains werden übersprungen.</li>
+      <li>Für jede Domain wird ein Scan in die Queue gestellt — läuft sofort.</li>
+      <li>Nach Scan-Ende wird automatisch eine geplante Angebots-Mail angelegt: <strong>Versand morgen ab 08:00 Uhr, alle {{ spacing_minutes }} Minuten eine Mail</strong> (Spam-Schutz).</li>
+      <li>Jede geplante Mail taucht im Posteingang unter „Geplante Nachrichten" auf — dort bis Versandzeit jederzeit einzeln abbrechbar.</li>
+    </ol>
+    <div class="mt-2 text-xs text-sky-800">
+      Max. {{ max_rows }} Zeilen pro Upload. Dateigröße ≤ 2 MB.
+    </div>
+  </div>
+
+  <form method="post" action="/batch/csv" enctype="multipart/form-data"
+        class="mt-5 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5">
+
+    <div>
+      <label class="block text-sm font-medium text-slate-700 mb-1">CSV-Datei</label>
+      <input type="file" name="file" accept=".csv,text/csv" required
+             class="block w-full text-sm text-slate-700 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100">
+      <p class="text-xs text-slate-500 mt-1">Erste Zeile muss die Kopfzeile <code class="font-mono">name,email</code> sein.</p>
+    </div>
+
+    <div class="border-2 border-emerald-200 bg-emerald-50 rounded-lg p-4">
+      <label class="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" name="deep_scan" value="yes"
+               class="mt-1 w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500">
+        <div class="text-sm text-emerald-900">
+          <strong>Deep Scan aktivieren</strong>
+          <div class="text-xs mt-1 text-emerald-800">
+            Directory-Fuzzing, HTTP-Method-Probing, Zone-Transfer, CORS-Tests, JS-Secret-Scanning.
+            Deutlich länger pro Ziel — bei größeren Listen eher abschalten.
+          </div>
+        </div>
+      </label>
+    </div>
+
+    <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+      <a href="/" class="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50">Abbrechen</a>
+      <button type="submit"
+              class="inline-flex items-center gap-2 px-5 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Import starten
+      </button>
+    </div>
+  </form>
+
+  <p class="mt-4 text-xs text-slate-500">
+    Hinweis: Der CSV-Import bestätigt den Scan-Umfang im Sinne unseres Arbeitsversprechens
+    (klar abgegrenzter Prüfumfang). Die Angebots-Mails sind Erstkontakt — bitte vor dem
+    08:00-Schub kurz im Posteingang durchgehen.
+  </p>
+</div>
+{% endblock %}

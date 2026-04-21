@@ -42,6 +42,13 @@ class Scan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # CSV-Batch-Import fields: when set, scan worker auto-schedules an offer
+    # email to auto_offer_recipient at auto_offer_scheduled_for. batch_id
+    # groups scans from the same CSV upload so they can be listed together.
+    batch_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    auto_offer_recipient: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    auto_offer_scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    auto_offer_dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Message(Base):
@@ -129,6 +136,9 @@ class ScheduledEmail(Base):
         String(36), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # When True + scan_id set, the dispatcher renders offer + report PDF from
+    # the scan and attaches both before sending. Used by the CSV-batch import.
+    include_offer_pdfs: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class ScanEpisode(Base):

@@ -29,6 +29,59 @@ def _sync_engine():
         )
 
 
+def _queue_auto_offer_if_configured(engine, scan_id: str) -> None:
+    """If the scan was created via CSV batch import with auto_offer_* set,
+    create a ScheduledEmail row that the dispatcher will send at the
+    scheduled time. Idempotent: auto_offer_dispatched_at guards against
+    duplicate queueing on re-runs.
+    """
+    from app.models import Scan, ScheduledEmail
+
+    with Session(engine) as s:
+        scan = s.get(Scan, scan_id)
+        if not scan:
+            return
+        if not (scan.auto_offer_recipient and scan.auto_offer_scheduled_for):
+            return
+        if scan.auto_offer_dispatched_at:
+            return  # already queued
+
+        # Compose a neutral default body. The scheduled banner on /inbox lets
+        # the user review and cancel before the actual send time.
+        subject = f"IT-Sicherheitsprüfung {scan.target_domain} — Prüfbericht + Angebot"
+        body = (
+            "Sehr geehrte Damen und Herren,\n\n"
+            f"anbei erhalten Sie den Prüfbericht unserer IT-Sicherheitsprüfung für "
+            f"{scan.institution_name or scan.target_domain} ({scan.target_domain}) "
+            "sowie unser unverbindliches Angebot zur Behebung der festgestellten Befunde.\n\n"
+            "Die Prüfung erfolgte im Rahmen unserer Vorsorgetätigkeit für Einrichtungen "
+            "des Gesundheitssektors — Grundlage sind KBV §390 SGB V, DSGVO Art. 32 und "
+            "ggf. NIS2UmsuCG. Für Rückfragen oder einen kurzen Termin erreichen Sie uns "
+            "unter +49 176 43677735 oder per Antwort auf diese Mail.\n\n"
+            "Mit freundlichen Grüßen\n\n"
+            "Daniel Rupp\n"
+            "Advanced Analytics GmbH — ZDKG"
+        )
+
+        sched = ScheduledEmail(
+            inbound_message_id=None,
+            scan_id=scan.id,
+            to_addr=scan.auto_offer_recipient,
+            cc_addr=None,
+            subject=subject,
+            body_text=body,
+            in_reply_to=None,
+            references=None,
+            scheduled_for=scan.auto_offer_scheduled_for,
+            status="queued",
+            include_offer_pdfs=True,
+        )
+        s.add(sched)
+        scan.auto_offer_dispatched_at = datetime.now(timezone.utc)
+        s.commit()
+        print(f"[auto_offer] queued for scan={scan_id} at {scan.auto_offer_scheduled_for.isoformat()}", flush=True)
+
+
 def run_scan_job(scan_id: str, domain: str, deep_scan: bool = False, rate_limit_test: bool = False) -> None:
     from app.models import Scan  # local import avoids eager metadata init
 
@@ -63,6 +116,14 @@ def run_scan_job(scan_id: str, domain: str, deep_scan: bool = False, rate_limit_
                 print(f"[episodes] {domain}: {summary}", flush=True)
         except Exception as ep_err:  # noqa: BLE001
             print(f"[episodes] update failed: {type(ep_err).__name__}: {ep_err}", flush=True)
+
+        # CSV-Batch-Import: if auto_offer_* fields are set, park a ScheduledEmail
+        # so the dispatcher ships the offer at the scheduled time with both PDFs
+        # attached. Wrapped so failures never block the scan itself.
+        try:
+            _queue_auto_offer_if_configured(engine, scan_id)
+        except Exception as ao_err:  # noqa: BLE001
+            print(f"[auto_offer] queue failed: {type(ao_err).__name__}: {ao_err}", flush=True)
     except Exception as e:  # noqa: BLE001
         set_status(
             status="failed",

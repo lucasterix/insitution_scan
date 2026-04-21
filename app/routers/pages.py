@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -260,6 +260,141 @@ async def create_scan(
     if len(created_ids) == 1:
         return RedirectResponse(url=f"/scans/{created_ids[0]}", status_code=303)
     return RedirectResponse(url="/?batch=" + str(len(created_ids)), status_code=303)
+
+
+# --------------------------- CSV-Batch-Import ---------------------------
+
+BATCH_SPAM_SPACING_MINUTES = 4  # gap between consecutive auto-offer sends
+BATCH_MAX_ROWS = 200  # hard cap to keep the worker queue sane
+
+
+def _parse_batch_csv(raw: bytes) -> list[dict]:
+    """Turn a CSV upload into rows with (institution_name, recipient, domain).
+
+    Accepts encodings utf-8 / cp1252 / latin-1 (the input sample came from
+    Excel-exported data with mojibake like 'Ã¤' for 'ä' — we still accept it
+    but the institution name will carry that mojibake through).
+
+    Strips duplicate domains (keeps the first row per domain) and skips
+    rows with no parseable email. Returns an ordered list.
+    """
+    import csv
+    import io
+    text: str | None = None
+    for enc in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            text = raw.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise HTTPException(status_code=400, detail="CSV-Datei konnte nicht dekodiert werden")
+
+    reader = csv.DictReader(io.StringIO(text))
+    out: list[dict] = []
+    seen_domains: set[str] = set()
+    for row in reader:
+        name = (row.get("name") or "").strip()
+        email_cell = (row.get("email") or "").strip()
+        if not email_cell:
+            continue
+        # email column may carry multiple addrs separated by ; or ,
+        candidates = [e.strip().lower() for e in email_cell.replace(",", ";").split(";") if "@" in e]
+        if not candidates:
+            continue
+        primary = candidates[0]
+        domain = primary.rsplit("@", 1)[-1]
+        if not domain or not _validate_target(domain):
+            continue
+        if domain in seen_domains:
+            continue
+        seen_domains.add(domain)
+        out.append({
+            "institution_name": name or domain,
+            "recipient": primary,
+            "domain": domain,
+        })
+        if len(out) >= BATCH_MAX_ROWS:
+            break
+    return out
+
+
+def _tomorrow_at_eight_berlin() -> datetime:
+    """Next calendar day, 08:00 Europe/Berlin, returned as aware UTC datetime."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Europe/Berlin")
+    except Exception:  # noqa: BLE001
+        tz = timezone.utc
+    now_local = datetime.now(tz)
+    tomorrow = (now_local + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+    return tomorrow.astimezone(timezone.utc)
+
+
+@router.get("/batch", response_class=HTMLResponse)
+async def batch_page(
+    request: Request, session: AsyncSession = Depends(get_session)
+) -> HTMLResponse:
+    return await _tpl(request, session, "batch_csv.html", {
+        "spacing_minutes": BATCH_SPAM_SPACING_MINUTES,
+        "max_rows": BATCH_MAX_ROWS,
+    })
+
+
+@router.post("/batch/csv")
+async def batch_csv_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    deep_scan: str = Form(None),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Leere Datei")
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Datei zu groß (max 2 MB)")
+
+    rows = _parse_batch_csv(raw)
+    if not rows:
+        raise HTTPException(status_code=400, detail="Keine verwertbaren Zeilen (Header name,email?)")
+
+    from uuid import uuid4 as _uuid
+    batch_id = str(_uuid())
+    is_deep = bool(deep_scan)
+    start_utc = _tomorrow_at_eight_berlin()
+
+    created_ids: list[tuple[str, str]] = []
+    for i, row in enumerate(rows):
+        send_at = start_utc + timedelta(minutes=i * BATCH_SPAM_SPACING_MINUTES)
+        scan = Scan(
+            institution_name=row["institution_name"][:255],
+            target_domain=row["domain"],
+            status="queued",
+            progress=0,
+            ownership_confirmed=True,
+            deep_scan=is_deep,
+            rate_limit_test=False,
+            context={"source": "csv_batch", "batch_id": batch_id},
+            batch_id=batch_id,
+            auto_offer_recipient=row["recipient"],
+            auto_offer_scheduled_for=send_at,
+        )
+        session.add(scan)
+        await session.flush()
+        created_ids.append((scan.id, row["domain"]))
+
+    await session.commit()
+
+    for sid, domain in created_ids:
+        scan_queue.enqueue(
+            run_scan_job, sid, domain, is_deep, False, job_id=f"scan-{sid}"
+        )
+
+    return RedirectResponse(url=f"/?batch_id={batch_id}", status_code=303)
 
 
 def _contact_and_offer(scan: Scan) -> tuple[dict, dict]:
@@ -1143,51 +1278,15 @@ async def delete_scan(
 
 
 def _render_scan_pdf(request: Request, scan: Scan) -> bytes:
-    """Render the main scan report PDF (shared between download + email).
-
-    Also runs the 3-agent AI pipeline (Enricher → Reporter → Adviser) to
-    produce the Management-Zusammenfassung. Result is cached in Redis by
-    findings-hash, so regenerating the PDF for the same scan doesn't
-    re-burn tokens.
-    """
-    kbv = build_kbv_summary(scan.result)
-    dashboard = build_dashboard(scan.result)
-    generated_at = datetime.now(timezone.utc)
-
-    # AI-authored executive summary (nullable — template falls back to plain text).
-    from app.compliance.report_ai import generate_executive_summary
-    ai_summary = None
-    try:
-        ai_summary = generate_executive_summary(
-            scan_id=scan.id,
-            institution_name=scan.institution_name or "",
-            target_domain=scan.target_domain,
-            findings=list((scan.result or {}).get("findings") or []),
-            result=scan.result,
-        )
-    except Exception:  # noqa: BLE001 — never fail PDF generation on AI error
-        ai_summary = None
-
-    html = templates.get_template("report_pdf.html").render(
-        request=request, scan=scan, kbv=kbv, dashboard=dashboard,
-        generated_at=generated_at, ai_summary=ai_summary,
-    )
-    from weasyprint import HTML  # lazy import
-    return HTML(string=html, base_url=str(request.base_url)).write_pdf()
+    """Request-path wrapper — delegates to app.reports."""
+    from app.reports import render_scan_pdf_bytes
+    return render_scan_pdf_bytes(scan, str(request.base_url))
 
 
 def _render_offer_pdf(request: Request, scan: Scan) -> bytes:
-    """Render the offer/Angebot PDF (shared between download + email)."""
-    from datetime import timedelta
-    contact, offer = _contact_and_offer(scan)
-    generated_at = datetime.now(timezone.utc)
-    valid_until = generated_at + timedelta(days=30)
-    html = templates.get_template("offer_pdf.html").render(
-        request=request, scan=scan, contact=contact, offer=offer,
-        generated_at=generated_at, valid_until=valid_until, format_eur=format_eur,
-    )
-    from weasyprint import HTML  # lazy import
-    return HTML(string=html, base_url=str(request.base_url)).write_pdf()
+    """Request-path wrapper — delegates to app.reports."""
+    from app.reports import render_offer_pdf_bytes
+    return render_offer_pdf_bytes(scan, str(request.base_url))
 
 
 @router.get("/scans/{scan_id}/offer.pdf")

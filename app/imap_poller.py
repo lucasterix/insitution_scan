@@ -228,12 +228,48 @@ async def _dispatch_due_scheduled() -> dict:
         res = await session.execute(q)
         rows = list(res.scalars())
         for sched in rows:
+            attachments: list[tuple[str, bytes, str]] = []
+            # CSV-batch path: re-render both PDFs at send time so the bytes
+            # always reflect the current scan state. Heavy CPU work — offload
+            # to a thread so the async poll loop isn't blocked.
+            if sched.include_offer_pdfs and sched.scan_id:
+                try:
+                    scan = await session.get(Scan, sched.scan_id)
+                    if not scan:
+                        raise RuntimeError(f"scan {sched.scan_id} not found at send time")
+                    if scan.status != "completed":
+                        # Defer: postpone by 15 minutes, dispatcher will retry next tick.
+                        sched.scheduled_for = datetime.now(timezone.utc) + timedelta(minutes=15)
+                        log.info("scheduled %s deferred: scan %s not yet completed", sched.id, scan.id)
+                        continue
+                    import asyncio
+                    from app.config import get_settings as _gs
+                    base_url = _gs().public_base_url.rstrip("/") + "/"
+
+                    def _render_both(scan_ref):
+                        from app.reports import render_offer_pdf_bytes, render_scan_pdf_bytes
+                        return (
+                            render_offer_pdf_bytes(scan_ref, base_url),
+                            render_scan_pdf_bytes(scan_ref, base_url),
+                        )
+                    offer_pdf, scan_pdf = await asyncio.to_thread(_render_both, scan)
+                    attachments = [
+                        (f"angebot-{scan.target_domain}-{scan.id[:8]}.pdf", offer_pdf, "application/pdf"),
+                        (f"pruefbericht-{scan.target_domain}-{scan.id[:8]}.pdf", scan_pdf, "application/pdf"),
+                    ]
+                except Exception as e:  # noqa: BLE001
+                    sched.status = "failed"
+                    sched.error_message = f"PDF render: {type(e).__name__}: {e}"[:500]
+                    failed += 1
+                    log.warning("scheduled render failed for %s: %s", sched.id, e)
+                    continue
+
             try:
                 rec = mailer.send_offer_email(
                     to_email=sched.to_addr,
                     subject=sched.subject,
                     body_text=sched.body_text,
-                    attachments=[],
+                    attachments=attachments,
                     cc=sched.cc_addr or None,
                     in_reply_to=sched.in_reply_to,
                     references=sched.references,
@@ -256,6 +292,7 @@ async def _dispatch_due_scheduled() -> dict:
                 cc_addr=rec["cc"],
                 subject=rec["subject"],
                 body_text=rec["body_text"],
+                attachments_meta=rec.get("attachments_meta") or None,
             )
             session.add(out_msg)
             await session.flush()
