@@ -366,6 +366,9 @@ async def batch_csv_upload(
     request: Request,
     file: UploadFile = File(...),
     deep_scan: str = Form(None),
+    send_when: str = Form("tomorrow8"),
+    custom_start: str = Form(""),
+    spacing_minutes: int = Form(BATCH_SPAM_SPACING_MINUTES),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     user = await get_current_user(request, session)
@@ -385,11 +388,29 @@ async def batch_csv_upload(
     from uuid import uuid4 as _uuid
     batch_id = str(_uuid())
     is_deep = bool(deep_scan)
-    start_utc = _tomorrow_at_eight_berlin()
+
+    # ---------- Send-time strategy ----------
+    # Three modes, always with minutes-spacing between consecutive mails:
+    #   "now"        — first mail goes out on next poller tick, each next one
+    #                  +spacing_minutes later. Useful for small hot batches.
+    #   "tomorrow8"  — tomorrow 08:00 Europe/Berlin (default, original behavior).
+    #   "custom"     — user picked a specific datetime-local. Parsed as Berlin
+    #                  local via _parse_scheduled_for; falls back to tomorrow8
+    #                  if empty/past.
+    spacing = max(1, min(int(spacing_minutes or BATCH_SPAM_SPACING_MINUTES), 60))
+    if send_when == "now":
+        # Each scan still needs to finish before its mail fires — give the
+        # first one a small head start so the scan has time to complete.
+        start_utc = datetime.now(timezone.utc) + timedelta(minutes=spacing)
+    elif send_when == "custom":
+        parsed = _parse_scheduled_for(custom_start)
+        start_utc = parsed if parsed is not None else _tomorrow_at_eight_berlin()
+    else:
+        start_utc = _tomorrow_at_eight_berlin()
 
     created_ids: list[tuple[str, str]] = []
     for i, row in enumerate(rows):
-        send_at = start_utc + timedelta(minutes=i * BATCH_SPAM_SPACING_MINUTES)
+        send_at = start_utc + timedelta(minutes=i * spacing)
         scan = Scan(
             institution_name=row["institution_name"][:255],
             target_domain=row["domain"],

@@ -179,14 +179,15 @@
     </div>
   </div>
 
-  {# Severity legend under the donut for quick orientation #}
-  <div style="display: flex; gap: 6pt; margin-top: 8pt; font-size: 7.5pt; color: rgba(255,255,255,0.85); flex-wrap: wrap;">
-    {% for sev, label, col in [('critical','Kritisch','#dc2626'),('high','Hoch','#ea580c'),('medium','Mittel','#d97706'),('low','Niedrig','#0284c7'),('info','Info','#94a3b8')] %}
+  {# Severity legend under the donut for quick orientation.
+     Solid severity-colored pills with white text — avoids the low-contrast
+     trap of semi-transparent white pills on the dark cover gradient. #}
+  <div style="margin-top: 8pt; font-size: 8pt; line-height: 1.8;">
+    {% for sev, label, col in [('critical','Kritisch','#dc2626'),('high','Hoch','#ea580c'),('medium','Mittel','#d97706'),('low','Niedrig','#0284c7'),('info','Info','#64748b')] %}
       {% set count = dashboard.counts.get(sev, 0) %}
       {% if count > 0 %}
-      <span style="display: inline-flex; align-items: center; gap: 3pt; padding: 2pt 6pt; background: rgba(255,255,255,0.08); border-radius: 3pt;">
-        <span style="width: 6pt; height: 6pt; background: {{ col }}; border-radius: 50%; display: inline-block;"></span>
-        {{ label }} <strong style="color: white;">{{ count }}</strong>
+      <span style="display: inline-block; padding: 2pt 8pt; margin-right: 4pt; background: {{ col }}; color: white; border-radius: 3pt; font-weight: 600;">
+        {{ label }} <span style="opacity: 0.95;">{{ count }}</span>
       </span>
       {% endif %}
     {% endfor %}

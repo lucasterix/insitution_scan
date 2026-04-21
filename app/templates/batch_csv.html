@@ -44,6 +44,43 @@
       </label>
     </div>
 
+    {# =========== Mail-Versand-Zeitpunkt (mit Taktung) =========== #}
+    <div class="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <div class="text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">Mail-Versand</div>
+      <div class="space-y-2 text-sm">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="send_when" value="tomorrow8" checked
+                 onchange="updateBatchSendUI()" class="accent-emerald-600">
+          <span><strong>Morgen 08:00 Uhr</strong> — empfohlen bei neuen Zielen, gibt Ruhezeit für Review</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="send_when" value="now"
+                 onchange="updateBatchSendUI()" class="accent-emerald-600">
+          <span><strong>Sofort starten</strong> (mit Taktung) — erster Versand kurz nach Scan-Abschluss</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="send_when" value="custom"
+                 onchange="updateBatchSendUI()" class="accent-emerald-600">
+          <span><strong>Benutzerdefinierter Zeitpunkt</strong> (mit Taktung)</span>
+        </label>
+        <input type="datetime-local" name="custom_start" id="custom-start"
+               class="hidden ml-6 px-2 py-1.5 border border-slate-300 rounded-lg text-sm">
+      </div>
+
+      <div class="mt-4 flex items-center gap-3 flex-wrap">
+        <label class="text-sm text-slate-700">
+          <span class="font-semibold">Abstand zwischen Mails:</span>
+        </label>
+        <input type="number" name="spacing_minutes" value="{{ spacing_minutes }}" min="1" max="60"
+               class="w-20 px-2 py-1.5 border border-slate-300 rounded-lg text-sm">
+        <span class="text-sm text-slate-500">Minuten (Spam-Schutz, 1–60)</span>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">
+        Jede Domain bekommt einen eigenen Versand-Slot. Bei {{ spacing_minutes }} min Abstand
+        dauert eine 30er-Liste ca. 2 Stunden vom Start bis zum letzten Versand.
+      </p>
+    </div>
+
     <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
       <a href="/" class="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-700 hover:bg-slate-50">Abbrechen</a>
       <button type="submit"
@@ -57,7 +94,28 @@
   <p class="mt-4 text-xs text-slate-500">
     Hinweis: Der CSV-Import bestätigt den Scan-Umfang im Sinne unseres Arbeitsversprechens
     (klar abgegrenzter Prüfumfang). Die Angebots-Mails sind Erstkontakt — bitte vor dem
-    08:00-Schub kurz im Posteingang durchgehen.
+    Versand kurz im Posteingang durchgehen.
   </p>
 </div>
+
+<script>
+function updateBatchSendUI() {
+  const picked = document.querySelector('input[name="send_when"]:checked');
+  const custom = document.getElementById('custom-start');
+  if (!picked || !custom) return;
+  if (picked.value === 'custom') {
+    custom.classList.remove('hidden');
+    if (!custom.value) {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(8, 0, 0, 0);
+      const pad = n => String(n).padStart(2, '0');
+      custom.value = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' +
+                     pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+  } else {
+    custom.classList.add('hidden');
+  }
+}
+</script>
 {% endblock %}
