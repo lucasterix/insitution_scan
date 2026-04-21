@@ -30,6 +30,7 @@ def send_offer_email(
     attachments_meta_out: list[dict] | None = None,
     in_reply_to: str | None = None,
     references: str | None = None,
+    auto_submitted: bool = False,
 ) -> dict:
     """Send a multipart/mixed email + return a record describing the send.
 
@@ -59,6 +60,11 @@ def send_offer_email(
         msg["References"] = references
     elif in_reply_to:
         msg["References"] = in_reply_to
+    if auto_submitted:
+        # RFC 3834: signals downstream MTAs that this is a generated reply so
+        # their vacation responders / auto-forwarders should not trigger.
+        msg["Auto-Submitted"] = "auto-replied"
+        msg["X-Auto-Response-Suppress"] = "All"  # Outlook-specific safety net
     msg.set_content(body_text, subtype="plain", charset="utf-8")
 
     attachments_meta: list[dict] = []

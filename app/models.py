@@ -76,6 +76,12 @@ class Message(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
     raw_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)  # IMAP UID, for idempotency
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # Auto-reply bot bookkeeping — populated by app.auto_reply when an inbound
+    # message is processed. bot_action ∈ { auto_reply, forward, skip, dry_run }.
+    bot_action: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    bot_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    bot_confidence: Mapped[float | None] = mapped_column(nullable=True)
+    bot_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ScanEpisode(Base):

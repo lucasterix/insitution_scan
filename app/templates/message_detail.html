@@ -35,6 +35,27 @@
       </dl>
     </header>
 
+    {# KI-Bot-Status-Panel #}
+    {% if msg.bot_action %}
+      {% set bot_meta = {'auto_reply': ('🤖 Automatisch beantwortet','emerald','Der Bot hat diese Nachricht in Daniel Rupps Namen beantwortet.'),
+                         'forward':    ('🤖 An Daniel weitergeleitet','sky','Einstufung: wichtig — Weiterleitung an daniel.rupp@froehlichdienste.de.'),
+                         'skip':       ('🤖 Manuell zu bearbeiten','slate','Der Bot hat hier nichts unternommen — bitte manuell prüfen.'),
+                         'dry_run':    ('🤖 Dry-Run','amber','Dry-Run-Modus: die geplante Aktion steht in der Begründung, nichts wurde verschickt.')} %}
+      {% set bm = bot_meta.get(msg.bot_action, (msg.bot_action, 'slate', '')) %}
+      <div class="px-6 py-3 bg-{{ bm[1] }}-50 border-b border-{{ bm[1] }}-100">
+        <div class="flex items-baseline justify-between gap-3 flex-wrap">
+          <div class="text-sm font-semibold text-{{ bm[1] }}-900">{{ bm[0] }}</div>
+          {% if msg.bot_processed_at %}
+            <time class="text-xs text-{{ bm[1] }}-700">{{ msg.bot_processed_at.strftime('%d.%m.%Y %H:%M') }}</time>
+          {% endif %}
+        </div>
+        <p class="text-xs text-{{ bm[1] }}-800 mt-1 leading-relaxed">{{ bm[2] }}</p>
+        {% if msg.bot_reasoning %}
+          <p class="text-xs text-{{ bm[1] }}-800 mt-1"><span class="opacity-60">Begründung:</span> {{ msg.bot_reasoning }}{% if msg.bot_confidence is not none %} <span class="opacity-60">· Konfidenz: {{ '%.0f'|format(msg.bot_confidence * 100) }}%</span>{% endif %}</p>
+        {% endif %}
+      </div>
+    {% endif %}
+
     {% if msg.attachments_meta %}
     <div class="px-6 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap gap-2">
       {% for a in msg.attachments_meta %}

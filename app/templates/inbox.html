@@ -99,6 +99,15 @@
                     {{ scans_by_id[m.scan_id].institution_name or scans_by_id[m.scan_id].target_domain }}
                   </span>
                 {% endif %}
+                {# KI-Bot-Aktion-Badge (nur auf inbound oder outbound die vom Bot erzeugt wurden) #}
+                {% if m.bot_action %}
+                  {% set bot_labels = {'auto_reply': ('Auto-beantwortet','emerald'),
+                                       'forward':    ('Weitergeleitet','sky'),
+                                       'skip':       ('Manuell','slate'),
+                                       'dry_run':    ('Dry-Run','amber')} %}
+                  {% set lbl = bot_labels.get(m.bot_action, (m.bot_action, 'slate')) %}
+                  · <span class="inline-block px-1.5 py-0 rounded text-[10px] font-semibold bg-{{ lbl[1] }}-100 text-{{ lbl[1] }}-700 uppercase">🤖 {{ lbl[0] }}</span>
+                {% endif %}
               </div>
               {% if m.body_text %}
               <p class="text-sm text-slate-600 mt-1.5 truncate">{{ m.body_text[:200] }}</p>

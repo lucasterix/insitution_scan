@@ -273,7 +273,7 @@ async def poll_once() -> dict:
             att_meta = _attachments_meta(msg)
             scan_id = await _match_scan_id(session, from_addr, in_reply_to, refs)
 
-            session.add(Message(
+            new_msg = Message(
                 scan_id=scan_id,
                 direction="inbound",
                 message_id=msg_id,
@@ -288,11 +288,20 @@ async def poll_once() -> dict:
                 attachments_meta=att_meta or None,
                 received_at=received_at or datetime.now(timezone.utc),
                 raw_uid=(uid or "")[:64] or None,
-            ))
+            )
+            session.add(new_msg)
             new_count += 1
 
         try:
             await session.commit()
+            # Auto-reply hook: run synchronously after successful commit so the
+            # bot sees the message in DB. Uses the sync engine — runs inside the
+            # same RQ-worker / poller process. Failures in the bot never affect
+            # the poller's success path (the message is already persisted).
+            try:
+                await _run_auto_replies_for_new_inbound(session, since_seconds=300)
+            except Exception as e:  # noqa: BLE001
+                log.warning("auto_reply batch failed: %s: %s", type(e).__name__, e)
         except Exception as e:  # noqa: BLE001
             await session.rollback()
             log.error("IMAP poll commit failed: %s: %s", type(e).__name__, e)
@@ -307,6 +316,52 @@ async def poll_once() -> dict:
 
 
 # ---------- Entrypoint ----------
+
+
+async def _run_auto_replies_for_new_inbound(async_session, since_seconds: int = 300) -> None:
+    """After a poll cycle commits new inbound rows, fetch those that haven't
+    been processed by the bot yet and push each through app.auto_reply.
+
+    Runs on the sync SQLAlchemy engine — app.auto_reply is fully synchronous
+    (calls smtplib, anthropic HTTP). Executed via asyncio.to_thread so it
+    doesn't block the IMAP event loop.
+    """
+    import asyncio
+    from sqlalchemy import create_engine, select as sync_select
+    from sqlalchemy.orm import Session as SyncSession
+    from app.auto_reply import process_inbound
+    from app.config import get_settings as _gs
+
+    s = _gs()
+    if not s.auto_responder_enabled:
+        return
+
+    sync_url = s.database_url.replace("+asyncpg", "+psycopg") if "+asyncpg" in s.database_url else s.database_url
+
+    def _blocking_work():
+        engine = create_engine(sync_url, pool_pre_ping=True)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=since_seconds)
+        processed = 0
+        with SyncSession(engine) as sync_s:
+            q = sync_select(Message).where(
+                Message.direction == "inbound",
+                Message.bot_action.is_(None),
+                Message.received_at >= cutoff,
+            ).limit(20)
+            msgs = list(sync_s.execute(q).scalars())
+            for m in msgs:
+                try:
+                    outcome = process_inbound(sync_s, m)
+                    sync_s.commit()
+                    processed += 1
+                    log.info("auto_reply: %s → %s (%s)", (m.from_addr or "?")[:40], outcome, (m.bot_reasoning or "")[:80])
+                except Exception as e:  # noqa: BLE001
+                    sync_s.rollback()
+                    log.warning("auto_reply error for msg %s: %s", m.id, e)
+        if processed:
+            log.info("auto_reply batch: %d message(s) processed", processed)
+
+    await asyncio.to_thread(_blocking_work)
 
 
 def run_forever() -> None:

@@ -72,6 +72,14 @@ class Settings(BaseSettings):
     # VPN-endpoint probes on a static site). Off by default — opt-in per env.
     scan_use_refiner: bool = False
 
+    # Auto-reply bot on inbound mail. See app/auto_reply.py.
+    # Dry-run classifies + stamps the DB but never sends — start there, flip
+    # auto_responder_dry_run=false once the classifications look sane.
+    auto_responder_enabled: bool = False
+    auto_responder_dry_run: bool = True
+    auto_responder_forward_to: str = "daniel.rupp@froehlichdienste.de"
+    auto_responder_min_confidence: float = 0.7  # below this, auto_reply is downgraded to forward
+
 
 @lru_cache
 def get_settings() -> Settings:
