@@ -45,7 +45,18 @@ def _probe(domain: str, base_path: str, param: str) -> dict | None:
     if r.status_code not in (301, 302, 303, 307, 308):
         return None
     location = r.headers.get("location", "")
-    if CANARY_URL in location or "evil-redirect-probe" in location:
+    # Only flag a REAL open redirect: the Location header's HOST must be the
+    # evil canary host, i.e. the server actually sends the user OFF-SITE.
+    # If the evil URL only appears as a query-string on the SAME host (e.g.
+    # canonical www→www with ?goto=... preserved), that's NOT a redirect
+    # vulnerability — the user stays on the customer's domain. Every SPA
+    # and CMS preserves query strings on canonical redirects.
+    from urllib.parse import urlparse
+    try:
+        loc_host = urlparse(location).netloc.lower()
+    except Exception:  # noqa: BLE001
+        loc_host = ""
+    if "evil-redirect-probe.invalid" in loc_host:
         return {"path": base_path, "param": param, "status": r.status_code, "location": location[:200]}
     return None
 

@@ -561,6 +561,9 @@ _SHARED_HOSTING_PATTERNS: tuple[str, ...] = (
     # Agent-audit surfaced these additional shared-hosting PTRs:
     "elastic-ssl.ui-r.com",    # IONOS shared SSL cluster
     "ui-r.com",                 # IONOS parent
+    "hostingwerk.de",          # Hostingwerk shared
+    "manitu.net",              # manitu shared
+    "ngcobalt",                # manitu nginx-cluster pattern
     "one.com",                  # one.com (was "webcluster*.webpod*-cph3.one.com")
     "webpod",                   # one.com per-pod hostnames
     "webcluster",
