@@ -458,6 +458,24 @@ def check_ip_intel(domain: str, result: ScanResult, step: Callable[[str, int], N
     step("IP-Intel (Shodan/AbuseIPDB/OTX)", 82)
     ip_reports: dict[str, dict] = {}
 
+    # Shared-hosting check per IP. Shodan happily reports the host's whole
+    # port surface — but on KAS, Wix, IONOS, de-nserver etc. those ports
+    # belong to the hosting provider, not this customer. We suppress the
+    # shodan.port.* findings in that case (the informational "Shared
+    # Hosting detected" note comes from a different module).
+    import socket as _socket
+    from app.scanners.default_access import _is_shared_hosting_ptr
+    shared_hosting_ips: set[str] = set()
+    for ip in ips[:3]:
+        try:
+            ptr = _socket.gethostbyaddr(ip)[0]
+        except (_socket.herror, _socket.gaierror, OSError):
+            ptr = ""
+        if _is_shared_hosting_ptr(ptr):
+            shared_hosting_ips.add(ip)
+    if shared_hosting_ips:
+        result.metadata.setdefault("shared_hosting_detected", {})["shodan_skipped_ips"] = sorted(shared_hosting_ips)
+
     for ip in ips[:3]:  # cap to avoid slow scans with many A records
         entry: dict = {}
 
@@ -483,6 +501,11 @@ def check_ip_intel(domain: str, result: ScanResult, step: Callable[[str, int], N
                     6379: ("Redis", Severity.HIGH),
                     9200: ("Elasticsearch", Severity.HIGH),
                 }
+                # Suppress shodan port findings on shared-hosting IPs — see
+                # note at start of the function. The port is the hoster's,
+                # not the customer's.
+                if ip in shared_hosting_ips:
+                    continue
                 for port in ports:
                     if port in risky_ports:
                         label, sev = risky_ports[port]
