@@ -80,6 +80,45 @@ def fetch_baselines(domain: str) -> tuple[set[str], set[int]]:
     return hashes, lengths
 
 
+def detect_blanket_4xx(domain: str) -> set[int]:
+    """Detect if the server returns the same 4xx status for ALL unknown paths.
+
+    Many WAFs (Cloudflare, Sucuri, ModSecurity, SiteGround Security) and
+    reverse-proxies return a blanket 403/401 for anything they don't
+    recognise. Any scanner that treats those status codes as 'path exists'
+    then misinterprets the WAF behavior as dozens of real findings
+    (phpMyAdmin exposed, Konnektor exposed, ...).
+
+    Two guaranteed-nonexistent probe paths — if BOTH return the same 4xx,
+    the server has a blanket response for that code. Callers should then
+    drop all hits matching that status.
+    """
+    probe_a = f"/__mvzscan_probe_{hashlib.md5(domain.encode()).hexdigest()[:10]}__"
+    probe_b = f"/__mvzscan_probe_{hashlib.md5((domain + 'x').encode()).hexdigest()[:10]}__"
+    status_a: int | None = None
+    status_b: int | None = None
+    try:
+        with httpx.Client(
+            timeout=BASELINE_TIMEOUT,
+            follow_redirects=False,
+            headers={"User-Agent": USER_AGENT},
+        ) as client:
+            try:
+                status_a = client.get(f"https://{domain}{probe_a}").status_code
+            except httpx.HTTPError:
+                pass
+            try:
+                status_b = client.get(f"https://{domain}{probe_b}").status_code
+            except httpx.HTTPError:
+                pass
+    except Exception:  # noqa: BLE001
+        return set()
+    blanket: set[int] = set()
+    if status_a in (401, 403) and status_a == status_b:
+        blanket.add(status_a)
+    return blanket
+
+
 def is_catchall(body: str, baselines: tuple[set[str], set[int]] | set[str]) -> bool:
     # Back-compat: accept the old set-only shape.
     if isinstance(baselines, set):

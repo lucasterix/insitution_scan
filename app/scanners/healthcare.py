@@ -18,7 +18,7 @@ import dns.exception
 import dns.resolver
 import httpx
 
-from app.scanners._baseline import fetch_baselines, is_catchall
+from app.scanners._baseline import detect_blanket_4xx, fetch_baselines, is_catchall
 from app.scanners.base import Finding, ScanResult, Severity
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
@@ -138,6 +138,11 @@ def _check_kim(domain: str, result: ScanResult) -> None:
 def _probe_connector_paths(domain: str, result: ScanResult, baselines: set[str]) -> None:
     found: list[dict] = []
 
+    # WAF/CMS blanket 4xx defense: if the server returns 401/403 for every
+    # unknown path, we must not treat a 401/403 on e.g. /konnektor/ as
+    # "path exists". Discover that once up front, per domain.
+    blanket_4xx = detect_blanket_4xx(domain)
+
     # Content hints — the real connector UIs contain product-specific strings.
     # Every path must have at least one hint so SPA catch-alls cannot produce
     # false positives. Multiple acceptable strings per path handled via tuple.
@@ -164,6 +169,10 @@ def _probe_connector_paths(domain: str, result: ScanResult, baselines: set[str])
             ) as client:
                 r = client.get(f"https://{domain}{path}")
                 if r.status_code not in (200, 401, 403):
+                    return None
+                # Blanket-4xx defense: if THIS status is what the server
+                # returns for every unknown URL, the hit proves nothing.
+                if r.status_code in blanket_4xx:
                     return None
                 body = r.text if "text" in r.headers.get("content-type", "").lower() else ""
 
