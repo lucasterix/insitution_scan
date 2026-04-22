@@ -536,9 +536,28 @@ _SHARED_HOSTING_PATTERNS: tuple[str, ...] = (
     "your-server.de",
     "clients.your-server.de",
     "netcup-net.de",
+    "netcup.net",           # vServer/shared cluster
     "domainfactory.de",
+    "ispgateway.de",        # DomainFactory-Alias / shared
     "mittwald.de",
     "df-server.de",
+    "wixsite.com",          # Wix website builder infrastructure
+    "wix.com",
+    "wixstatic.com",
+    "oxeed.com",            # Open-Xchange mail hosting
+    "firstcolo.net",
+    "webgo24.de",
+    "webgo.de",
+    "contabo.net",          # VPS cluster
+    "contaboserver.net",
+    "raidboxes.io",         # WordPress managed hoster
+    "wpengine.com",
+    "kinsta.com",
+    "netlify.com",          # static hosts
+    "vercel.app",
+    "fly.dev",
+    "azurewebsites.net",
+    "cloudfront.net",
 )
 
 
@@ -554,18 +573,26 @@ def check_default_access(domain: str, result: ScanResult, step: Callable[[str, i
     step("Default-Access + Brute-Force-Risk", 85)
 
     port_scan = result.metadata.get("active_port_scan") or {}
-    # PTR check: if the domain's server IP lives on a shared-hosting PTR,
-    # open ports on that IP belong to the hosting provider / neighbours,
-    # not to this customer. We skip the service-level findings then.
-    server_ptr = ((result.metadata.get("server_analysis") or {}).get("ptr")) or ""
-    on_shared_hosting = _is_shared_hosting_ptr(server_ptr)
-    if on_shared_hosting:
-        result.metadata["shared_hosting_detected"] = {"ptr": server_ptr}
+    # PTR check: if the IP lives on a shared-hosting PTR, open ports on that
+    # IP belong to the hosting provider / neighbours, not to this customer.
+    # We resolve the PTR inline (per-IP) because this module can run before
+    # server_analysis writes its metadata.
+    import socket
+    shared_ips: dict[str, str] = {}
+    for ip in port_scan.keys():
+        try:
+            ptr = socket.gethostbyaddr(ip)[0]
+        except (socket.herror, socket.gaierror, OSError):
+            ptr = ""
+        if _is_shared_hosting_ptr(ptr):
+            shared_ips[ip] = ptr
+    if shared_ips:
+        result.metadata.setdefault("shared_hosting_detected", {}).update(shared_ips)
 
     for ip, data in port_scan.items():
         open_ports = set(data.get("open_ports", []))
 
-        if on_shared_hosting:
+        if ip in shared_ips:
             # Skip DB/FTP/Memcached/SMTP service-level probes entirely — those
             # belong to the hosting provider, not the customer. The separate
             # "Shared Hosting" informational finding is still emitted by the

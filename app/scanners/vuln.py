@@ -237,6 +237,18 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
     if not tech:
         return
 
+    # Shared-hosting check: when the customer's site lives on a KAS/IONOS/
+    # de-nserver/alfahosting/wixsite/etc IP, every OS/network-level CVE we
+    # would match (OpenSSH, Apache, nginx, Samba, FTP daemons) belongs to
+    # the hosting provider, not the customer. The customer can't patch
+    # those. Emitting them as a customer-side CVE would produce CRITICAL
+    # findings for something the customer has no access to.
+    #
+    # So we keep Strategy 1 (CPE_MAP = CMS/PHP/WordPress — always the
+    # customer's responsibility) and skip Strategies 2+3 (nmap-derived
+    # server stack) when the server IP is shared hosting.
+    on_shared_hosting = bool(result.metadata.get("shared_hosting_detected"))
+
     # Build (key, display_product, version, [cpe_variants]) list.
     candidates: list[tuple[str, str, str, list[str]]] = []
     for key, version in tech.items():
@@ -254,6 +266,8 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
         # Strategy 2: nmap_cpe.* keys contain product names extracted from nmap
         # XML CPE data. Build CPE strings automatically from the key name.
         if key.startswith("nmap_cpe."):
+            if on_shared_hosting:
+                continue  # shared-host OS stack — not the customer's problem
             product_name = key[len("nmap_cpe."):]
             # Common vendor guesses for well-known products
             vendor_guesses = [
@@ -272,6 +286,8 @@ def check_known_vulns(domain: str, result: ScanResult, step: Callable[[str, int]
 
         # Strategy 3: nmap.* keys from nmap service detection
         if key.startswith("nmap."):
+            if on_shared_hosting:
+                continue  # shared-host OS stack — not the customer's problem
             product_name = key[len("nmap."):]
             cpe_variants = [_cpe(product_name, product_name, version)]
             candidates.append((key, product_name, version, cpe_variants))
