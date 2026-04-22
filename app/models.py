@@ -46,6 +46,12 @@ class Scan(Base):
     # email to auto_offer_recipient at auto_offer_scheduled_for. batch_id
     # groups scans from the same CSV upload so they can be listed together.
     batch_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # AI review: Claude-audit nach jedem abgeschlossenen Scan. Blockt den
+    # Auto-Offer-Versand, wenn verdict='issues' ist. Siehe app.scan_review.
+    review_verdict: Mapped[str | None] = mapped_column(String(16), nullable=True)   # clean | issues | error
+    review_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_flagged_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     auto_offer_recipient: Mapped[str | None] = mapped_column(String(320), nullable=True)
     auto_offer_scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     auto_offer_dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

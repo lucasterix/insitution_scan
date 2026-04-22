@@ -150,6 +150,17 @@ def _queue_auto_offer_if_configured(engine, scan_id: str) -> None:
         if scan.auto_offer_dispatched_at:
             return  # already queued
 
+        # Respect the AI-review gate: any scan flagged 'issues' gets its
+        # auto-offer BLOCKED. The user reviews + unlocks manually via the
+        # scan detail UI. Better to delay a send than mail noisy findings.
+        if scan.review_verdict == "issues":
+            print(
+                f"[auto_offer] BLOCKED by review_verdict=issues for {scan.target_domain}; "
+                "human needs to unlock before mail queues.",
+                flush=True,
+            )
+            return
+
         subject, body = _compose_batch_offer(scan)
 
         sched = ScheduledEmail(
@@ -205,6 +216,15 @@ def run_scan_job(scan_id: str, domain: str, deep_scan: bool = False, rate_limit_
                 print(f"[episodes] {domain}: {summary}", flush=True)
         except Exception as ep_err:  # noqa: BLE001
             print(f"[episodes] update failed: {type(ep_err).__name__}: {ep_err}", flush=True)
+
+        # Claude auto-review of the completed scan. Runs before the
+        # auto-offer queue hook so a "issues" verdict blocks the mail.
+        # Failures never fail the scan — just log + move on.
+        try:
+            from app.scan_review import review_scan_sync
+            review_scan_sync(scan_id)
+        except Exception as rv_err:  # noqa: BLE001
+            print(f"[scan_review] failed: {type(rv_err).__name__}: {rv_err}", flush=True)
 
         # CSV-Batch-Import: if auto_offer_* fields are set, park a ScheduledEmail
         # so the dispatcher ships the offer at the scheduled time with both PDFs

@@ -49,6 +49,11 @@ async def init_db() -> None:
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS auto_offer_scheduled_for TIMESTAMPTZ",
             "ALTER TABLE scans ADD COLUMN IF NOT EXISTS auto_offer_dispatched_at TIMESTAMPTZ",
             "ALTER TABLE scheduled_emails ADD COLUMN IF NOT EXISTS include_offer_pdfs BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS review_verdict VARCHAR(16)",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS review_summary TEXT",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS review_flagged_ids JSON",
+            "ALTER TABLE scans ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ",
+            "CREATE INDEX IF NOT EXISTS ix_scans_review_verdict ON scans (review_verdict)",
         ):
             await conn.execute(text(ddl))
 

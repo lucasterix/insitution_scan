@@ -317,6 +317,46 @@
   </section>
   {% endif %}
 
+  {# =================== AI-REVIEW-BANNER =================== #}
+  {% if scan.review_verdict == 'issues' %}
+  <section class="mb-6">
+    <div class="rounded-2xl border-2 border-amber-300 bg-gradient-to-r from-amber-50 to-rose-50 px-5 py-4">
+      <div class="flex items-start gap-4">
+        <span class="flex-shrink-0 inline-flex w-10 h-10 rounded-full bg-amber-600 text-white items-center justify-center text-base" title="AI-Review hat Probleme erkannt">🤖</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-bold text-amber-900">
+            AI-Review-Warnung — Auto-Versand blockiert
+          </div>
+          <p class="text-xs text-amber-900 mt-1 whitespace-pre-line">{{ scan.review_summary or '(kein Text)' }}</p>
+          {% if scan.review_flagged_ids %}
+          <div class="text-[11px] text-amber-800 mt-2">
+            Auffällige Finding-IDs:
+            <span class="font-mono">{{ scan.review_flagged_ids | join(', ') }}</span>
+          </div>
+          {% endif %}
+        </div>
+        <form method="post" action="/scans/{{ scan.id }}/review/unlock"
+              onsubmit="var r = prompt('Grund der manuellen Freigabe?'); if (!r) return false; this.reason.value = r; return true;"
+              class="flex-shrink-0">
+          <input type="hidden" name="reason" value="">
+          <button type="submit" class="inline-flex items-center gap-2 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium">
+            Manuell freigeben
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+  {% elif scan.review_verdict == 'clean' %}
+  <div class="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-900">
+    🤖 AI-Review: clean
+    {% if scan.reviewed_at %}<span class="text-emerald-600">· {{ scan.reviewed_at.strftime('%d.%m. %H:%M') }}</span>{% endif %}
+  </div>
+  {% elif scan.review_verdict == 'error' %}
+  <div class="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-xs text-slate-700">
+    🤖 AI-Review: Fehler — {{ (scan.review_summary or '')[:120] }}
+  </div>
+  {% endif %}
+
   {# =================== FOLGEMAIL-HINWEIS (nach 4+ Tagen Funkstille) =================== #}
   {% if followup and followup.overdue %}
   <section class="mb-6">

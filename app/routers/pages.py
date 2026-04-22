@@ -1187,6 +1187,40 @@ async def send_reply(
     return RedirectResponse(url=target, status_code=303)
 
 
+@router.post("/scans/{scan_id}/review/unlock")
+async def unlock_scan_review(
+    request: Request, scan_id: str, session: AsyncSession = Depends(get_session)
+) -> Response:
+    """Human-override: flip review_verdict='issues' to 'clean' after manual check.
+
+    Writing a short reason is required so the audit trail is meaningful.
+    """
+    user = await get_current_user(request, session)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Login erforderlich")
+
+    form = await request.form()
+    reason = (form.get("reason") or "").strip()[:500]
+    if not reason:
+        raise HTTPException(status_code=400, detail="Grund der Freigabe ist Pflicht.")
+
+    scan = await session.get(Scan, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan nicht gefunden")
+    if scan.review_verdict != "issues":
+        return RedirectResponse(url=f"/scans/{scan_id}", status_code=303)
+
+    existing = scan.review_summary or ""
+    scan.review_verdict = "clean"
+    scan.review_summary = (
+        f"[Manuell freigegeben von {user.email} am "
+        f"{datetime.now(timezone.utc).strftime('%d.%m.%Y %H:%M UTC')}]\n"
+        f"Grund: {reason}\n\n---\nUrsprüngliches AI-Urteil:\n{existing}"
+    )
+    await session.commit()
+    return RedirectResponse(url=f"/scans/{scan_id}", status_code=303)
+
+
 @router.post("/scheduled/cancel-all")
 async def cancel_all_scheduled(
     request: Request, session: AsyncSession = Depends(get_session)

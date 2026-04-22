@@ -558,6 +558,20 @@ _SHARED_HOSTING_PATTERNS: tuple[str, ...] = (
     "fly.dev",
     "azurewebsites.net",
     "cloudfront.net",
+    # Agent-audit surfaced these additional shared-hosting PTRs:
+    "elastic-ssl.ui-r.com",    # IONOS shared SSL cluster
+    "ui-r.com",                 # IONOS parent
+    "one.com",                  # one.com (was "webcluster*.webpod*-cph3.one.com")
+    "webpod",                   # one.com per-pod hostnames
+    "webcluster",
+    "squarespace.com",          # Squarespace website builder
+    "squarespace-cdn.com",
+    "sqsp.net",
+    "sqspcdn.com",
+    "dt-internet.de",           # deutsche-telekom TYPO3 cluster (dml.dt-internet.de)
+    "cpanel.net",               # cPanel shared ecosystem
+    "ispgw.de",                 # DomainFactory alias
+    "contabo.host",             # contabo shared VPS
 )
 
 
