@@ -35,8 +35,58 @@ SECRET_PATTERNS: list[tuple[str, Severity, re.Pattern]] = [
     ("JWT", Severity.LOW, re.compile(r"eyJ[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}\.[A-Za-z0-9_\-]{20,}")),
     ("Private Key Block", Severity.CRITICAL, re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")),
     ("Firebase URL", Severity.INFO, re.compile(r"https://[a-z0-9\-]+\.firebaseio\.com")),
-    ("Sentry DSN", Severity.LOW, re.compile(r"https://[a-f0-9]{32}@[a-z0-9\-.]+/\d+")),
+    # Sentry DSNs are *by design* public — Sentry docs explicitly say they
+    # are safe to ship in frontend code (they carry no privileges other
+    # than submitting crash reports). We downgrade to INFO rather than
+    # skipping entirely so we still surface them for context.
+    ("Sentry DSN", Severity.INFO, re.compile(r"https://[a-f0-9]{32}@[a-z0-9\-.]+/\d+")),
 ]
+
+# Secrets matching one of these prefixes/patterns are by-design-public and
+# must NOT be emitted as a finding. Applies to the 'Generic API key' match:
+# any token string starting with these prefixes is a publishable key.
+PUBLIC_TOKEN_WHITELIST_PREFIXES: tuple[str, ...] = (
+    "pub_",              # Stripe-style publishable
+    "pub-",
+    "publishable_",
+    "pk_",               # Stripe publishable
+    "pub0",              # Docplanner / Jameda widget
+    "pub1",              # same family
+    "pk.ey",             # Mapbox access token (public by design)
+    "6L",                # reCAPTCHA v2/v3 site key (ALL start with 6L)
+    "UA-",               # Google Analytics legacy tracking ID
+    "G-",                # Google Analytics 4 measurement ID
+    "GTM-",              # Google Tag Manager ID
+    "AW-",               # Google Ads conversion ID
+    "client-token-",     # commonly used for widget tokens
+    "rzp_test_",         # Razorpay test
+    "rzp_live_",         # Razorpay (publishable by design)
+    "sha256-",           # SRI hash, not a secret
+    "sha384-",
+    "sha512-",
+)
+
+# Token TYPES that should never fire as findings, regardless of content
+# (they are public by design in their entirety).
+PUBLIC_TOKEN_TYPES_ALWAYS_SAFE: set[str] = {
+    "Sentry DSN",
+    "Stripe Publishable",
+    "Firebase URL",
+}
+
+
+def _is_public_token(snippet: str) -> bool:
+    """Return True when the matched secret looks like a publishable/public key."""
+    # Extract the quoted value (after the opening quote)
+    # Generic pattern matches: `(?i)token\"\":\"<value>\"`
+    # Simplest check: strip any leading label + punctuation, then look at the value.
+    # We look for any of the whitelist prefixes anywhere in the snippet.
+    lower = snippet
+    for prefix in PUBLIC_TOKEN_WHITELIST_PREFIXES:
+        if prefix in lower:
+            return True
+    return False
+
 
 API_ENDPOINT_RE = re.compile(r'["\'](/api/[a-zA-Z0-9/_\-]+)["\']')
 
@@ -108,8 +158,15 @@ def check_js_secrets(domain: str, result: ScanResult, step: Callable[[str, int],
                     return
                 js_files.append({"url": url, "length": len(text)})
                 for name, sev, pat in SECRET_PATTERNS:
+                    # Entire pattern class is public-by-design → skip.
+                    if name in PUBLIC_TOKEN_TYPES_ALWAYS_SAFE:
+                        continue
                     for m in pat.finditer(text):
                         snippet = m.group(0)[:80]
+                        # Reject matches whose value carries a known public
+                        # token prefix (pub_/pk_/UA-/sha256-/6L-reCAPTCHA…).
+                        if _is_public_token(snippet):
+                            continue
                         all_secrets.append({"file": url, "type": name, "severity": sev.value, "snippet": snippet})
                 for m in API_ENDPOINT_RE.finditer(text):
                     all_endpoints.add(m.group(1))
