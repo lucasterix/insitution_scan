@@ -123,25 +123,52 @@ def _compress_scan_for_review(scan: Any) -> str:
 
 
 def _parse_verdict(text: str) -> tuple[str, str, list[str]]:
-    """Extract (verdict, summary, flagged_ids) from the LLM's JSON reply."""
+    """Extract (verdict, summary, flagged_ids) from the LLM's JSON reply.
+
+    Uses raw_decode so that trailing prose / second JSON objects after the
+    first complete object don't break parsing. Claude occasionally emits a
+    short explanation after the JSON block despite the prompt asking for
+    strict JSON-only output.
+    """
     if not text:
         return "error", "LLM lieferte leere Antwort", []
-    # Strip any ```json fences
     t = text.strip()
+    # Strip any ```json fences.
     if t.startswith("```"):
-        t = t.strip("`")
+        # Common forms: ```json\n{...}\n``` or ```\n{...}\n```
+        t = t.strip("`").strip()
         if t.startswith("json"):
-            t = t[4:]
-        t = t.strip()
-    # Find the first { and last }
+            t = t[4:].strip()
+        if t.endswith("```"):
+            t = t[:-3].strip()
+
     start = t.find("{")
-    end = t.rfind("}")
-    if start < 0 or end <= start:
+    if start < 0:
         return "error", f"LLM-Antwort ohne JSON: {text[:200]}", []
+
+    # raw_decode greedily reads the first valid JSON value from the string,
+    # ignoring anything after. This survives "…} Zusätzliche Hinweise: …"
+    # tails that json.loads() would reject with Extra-data errors.
     try:
-        obj = json.loads(t[start:end + 1])
+        obj, _ = json.JSONDecoder().raw_decode(t[start:])
     except json.JSONDecodeError as e:
-        return "error", f"JSON parse error: {e}", []
+        # Last resort: braces-balance walker (handles newline-after-JSON).
+        depth = 0
+        end = -1
+        for i, ch in enumerate(t[start:], start=start):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end < 0:
+            return "error", f"JSON parse error: {e}", []
+        try:
+            obj = json.loads(t[start:end + 1])
+        except json.JSONDecodeError as e2:
+            return "error", f"JSON parse error: {e2}", []
     v = obj.get("verdict")
     if v not in ("clean", "issues"):
         v = "error"
