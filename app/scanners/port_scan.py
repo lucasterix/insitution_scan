@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
 from app.scanners.base import Finding, ScanResult, Severity
+from app.scanners.default_access import _is_shared_hosting_ptr
 
 TIMEOUT = 2.0
 
@@ -61,6 +62,20 @@ def active_port_scan(domain: str, result: ScanResult, step: Callable[[str, int],
     reports: dict[str, dict] = {}
 
     for ip in targets:
+        # Shared-hosting check: if the PTR of this IP points at a known
+        # shared-hosting provider (KAS, IONOS, Strato, Host Europe, etc.),
+        # open service ports belong to the hosting provider / neighbours
+        # and flagging them against the customer is misleading. We still
+        # record the open ports in metadata (useful context) but skip the
+        # findings. The informational "shared hosting" finding from
+        # server_analysis remains.
+        ptr = ""
+        try:
+            ptr = socket.gethostbyaddr(ip)[0]
+        except (socket.herror, socket.gaierror, OSError):
+            pass
+        is_shared = _is_shared_hosting_ptr(ptr)
+
         open_ports: list[int] = []
         with ThreadPoolExecutor(max_workers=8) as ex:
             futures = {ex.submit(_probe, ip, p[0]): p for p in CRITICAL_PORTS}
@@ -68,6 +83,9 @@ def active_port_scan(domain: str, result: ScanResult, step: Callable[[str, int],
                 port, sev, label = futures[f]
                 if f.result():
                     open_ports.append(port)
+                    # Skip per-port findings on shared hosting IPs.
+                    if is_shared:
+                        continue
                     # Port 22 SSH and port 25 SMTP are low/info noise — we still record them.
                     if sev.value not in ("info",):
                         finding_id = f"port.{ip}.{port}"

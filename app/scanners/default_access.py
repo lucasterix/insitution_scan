@@ -512,14 +512,65 @@ def _assess_brute_force_risk(ip: str, open_ports: set, result: ScanResult) -> No
     ))
 
 
+# Hostname patterns that identify shared-hosting / reseller infrastructure.
+# A MySQL/FTP server reachable on such an IP is not the customer's own server —
+# it's some neighbour's service on the shared host, and emitting it as a
+# finding for the customer is misleading (they can't close the port).
+_SHARED_HOSTING_PATTERNS: tuple[str, ...] = (
+    "kasserver.com",
+    "all-inkl.com",
+    "hosteurope.de",
+    "webpack.hosteurope",
+    "alfahosting",
+    "de-nserver.de",
+    "nserver.de",
+    "goserver.host",
+    "ionos.com",
+    "1and1.com",
+    "secureserver.net",
+    "hostinger.",
+    "strato.de",
+    "hidrive.strato",
+    "estugo.de",
+    "whserv.de",
+    "your-server.de",
+    "clients.your-server.de",
+    "netcup-net.de",
+    "domainfactory.de",
+    "mittwald.de",
+    "df-server.de",
+)
+
+
+def _is_shared_hosting_ptr(ptr: str | None) -> bool:
+    if not ptr:
+        return False
+    p = ptr.lower()
+    return any(needle in p for needle in _SHARED_HOSTING_PATTERNS)
+
+
 def check_default_access(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     """Test unauthenticated access + brute-force risk on every open port."""
     step("Default-Access + Brute-Force-Risk", 85)
 
     port_scan = result.metadata.get("active_port_scan") or {}
+    # PTR check: if the domain's server IP lives on a shared-hosting PTR,
+    # open ports on that IP belong to the hosting provider / neighbours,
+    # not to this customer. We skip the service-level findings then.
+    server_ptr = ((result.metadata.get("server_analysis") or {}).get("ptr")) or ""
+    on_shared_hosting = _is_shared_hosting_ptr(server_ptr)
+    if on_shared_hosting:
+        result.metadata["shared_hosting_detected"] = {"ptr": server_ptr}
 
     for ip, data in port_scan.items():
         open_ports = set(data.get("open_ports", []))
+
+        if on_shared_hosting:
+            # Skip DB/FTP/Memcached/SMTP service-level probes entirely — those
+            # belong to the hosting provider, not the customer. The separate
+            # "Shared Hosting" informational finding is still emitted by the
+            # server_analysis scanner so the customer knows the overall risk.
+            continue
 
         if 6379 in open_ports:
             _check_redis(ip, result)
