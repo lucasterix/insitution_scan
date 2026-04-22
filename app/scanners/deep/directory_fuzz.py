@@ -141,6 +141,33 @@ def _probe(client: httpx.Client, base: str, word: str) -> dict | None:
     return {"path": f"/{word}", "status": r.status_code, "body": body, "ct": ct}
 
 
+def _has_generic_4xx_blanket(client: httpx.Client, base: str) -> set[int]:
+    """Detect if the server returns 401/403 for ALL unknown paths.
+
+    Many WAFs (Cloudflare, Sucuri, ModSecurity, SiteGround Security) return
+    a blanket 403 for anything they don't recognize. In that mode every
+    dir-fuzz wordlist entry hits 403 — regardless of whether phpMyAdmin,
+    Jenkins, Grafana etc. actually exist on the server. Emitting dozens
+    of "admin panel existiert" findings is then pure noise.
+
+    We probe two different guaranteed-nonexistent paths. Any 4xx status
+    that both return identically is treated as a blanket response; later
+    we discard all dir-fuzz hits in that status class.
+    """
+    import hashlib
+    probe_a = f"/__mvzscan_nonexistent_{hashlib.md5(base.encode()).hexdigest()[:10]}__"
+    probe_b = f"/__mvzscan_random_{hashlib.md5((base + 'x').encode()).hexdigest()[:10]}__"
+    blanket: set[int] = set()
+    for path in (probe_a, probe_b):
+        try:
+            r = client.get(f"{base}{path}")
+            if r.status_code in (401, 403):
+                blanket.add(r.status_code)
+        except httpx.HTTPError:
+            continue
+    return blanket
+
+
 def check_directory_fuzz(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step(f"Directory Fuzz ({len(WORDLIST)} Pfade)", 74)
 
@@ -156,11 +183,20 @@ def check_directory_fuzz(domain: str, result: ScanResult, step: Callable[[str, i
         follow_redirects=False,
         headers={"User-Agent": USER_AGENT},
     ) as client:
+        # Detect WAF/CMS blanket 4xx first.
+        blanket_block = _has_generic_4xx_blanket(client, base)
+        if blanket_block:
+            result.metadata.setdefault("directory_fuzz_meta", {})["blanket_block"] = sorted(blanket_block)
+
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
             futures = [ex.submit(_probe, client, base, w) for w in WORDLIST]
             for f in as_completed(futures):
                 r = f.result()
                 if r is None:
+                    continue
+                # Skip blanket-blocked 401/403 — the server blocks every
+                # unknown path with this status, so a match proves nothing.
+                if r["status"] in blanket_block:
                     continue
                 # Skip catch-all 200 responses.
                 body = r.get("body", "")

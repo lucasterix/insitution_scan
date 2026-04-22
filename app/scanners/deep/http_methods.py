@@ -78,14 +78,21 @@ def check_http_methods(domain: str, result: ScanResult, step: Callable[[str, int
                 if r.status_code == 200:
                     ct = (r.headers.get("content-type") or "").lower()
                     body = r.text or ""
-                    # If the server returned HTML, check whether it's the
-                    # homepage fingerprint — if yes, this is just the SPA
-                    # serving the homepage for every verb, not a real accept.
-                    if "html" in ct and is_catchall(body, baselines):
+                    # HTML responses on PUT/DELETE/PATCH/CONNECT are almost
+                    # always false positives: Next.js, WordPress themes,
+                    # Typo3, Joomla, static-SPA builds all return HTML for
+                    # every verb without actually writing anything. A real
+                    # write endpoint responds with JSON (REST), XML (SOAP),
+                    # or empty (204). We skip HTML 200 entirely — the risk
+                    # of missing a truly broken method-accepting server is
+                    # much smaller than the risk of shipping FPs to every
+                    # practice website.
+                    if "html" in ct:
                         continue
-                    # HTML response that's NOT catch-all: still suspicious
-                    # (could be an error page on the method). Fall through
-                    # to emit the finding but mark it as heuristic.
+                    # JSON/plaintext 200: still do the baseline compare in
+                    # case the server renders its homepage as JSON (rare).
+                    if is_catchall(body, baselines):
+                        continue
                 result.add(Finding(
                     id=f"deep.http_{method.lower()}_accepted",
                     title=label,
