@@ -32,12 +32,25 @@ def _body_hash(body: str) -> str:
     return hashlib.sha1(capped.encode("utf-8", errors="ignore")).hexdigest()
 
 
+def _capped_len(body: str) -> int:
+    """Measure the body in the same window the hash operates on.
+
+    Callers all over the scanner pass already-truncated bodies (r.text[:4096],
+    r.text[:8192], r.text[:16384]). If the baseline stored the FULL length
+    and the probe passed a truncated length, the length comparison could
+    never match and the catch-all defense silently broke for every SPA.
+    Normalising to the BODY_CAP window on both sides fixes that regardless
+    of how much the caller passed in.
+    """
+    return len(body[:BODY_CAP])
+
+
 def fetch_baselines(domain: str) -> tuple[set[str], set[int]]:
     """Return (body-hash set, body-length set) that represent catch-all pages.
 
     Fetches `/` and two nonsense paths, hashes BODY_CAP bytes of each and also
-    stores the exact body length. SPAs that serve the same HTML to every route
-    will match on either the hash or the length baseline.
+    stores the body length capped to BODY_CAP. SPAs that serve the same HTML
+    to every route will match on either the hash or the length baseline.
     """
     hashes: set[str] = set()
     lengths: set[int] = set()
@@ -57,7 +70,7 @@ def fetch_baselines(domain: str) -> tuple[set[str], set[int]]:
                     r = client.get(f"https://{domain}{path}")
                     if r.status_code == 200:
                         hashes.add(_body_hash(r.text))
-                        lengths.add(len(r.text))
+                        lengths.add(_capped_len(r.text))
                 except httpx.HTTPError:
                     continue
     except Exception:  # noqa: BLE001
@@ -81,9 +94,9 @@ def is_catchall(body: str, baselines: tuple[set[str], set[int]] | set[str]) -> b
     if _body_hash(body) in hashes:
         return True
 
-    # Length-based fallback: SPAs that ship a tiny route-specific title/meta
-    # patch still return a body within a handful of bytes of the baseline.
-    body_len = len(body)
+    # Length-based fallback, measured in the same BODY_CAP window the
+    # baseline was stored in so truncated callers still match.
+    body_len = _capped_len(body)
     for b_len in lengths:
         if abs(body_len - b_len) <= 50:
             return True

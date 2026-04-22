@@ -10,6 +10,7 @@ from typing import Callable
 import httpx
 
 from app.scanners.base import Finding, ScanResult, Severity
+from app.scanners._baseline import fetch_baselines, is_catchall
 
 USER_AGENT = "MVZ-SelfScan/1.0 (+https://scan.zdkg.de)"
 
@@ -24,6 +25,11 @@ DANGEROUS_METHODS: list[tuple[str, Severity, str]] = [
 
 def check_http_methods(domain: str, result: ScanResult, step: Callable[[str, int], None]) -> None:
     step("HTTP Methods Probe", 62)
+
+    # SPA defense: fetch the homepage catch-all fingerprint up front. Next.js
+    # and similar SPAs return HTTP 200 with the same HTML for any method
+    # (PUT/DELETE/PATCH get the homepage too) — a 200 alone proves nothing.
+    baselines = fetch_baselines(domain)
 
     # Pull OPTIONS first to see what the server claims.
     allowed: list[str] = []
@@ -59,16 +65,48 @@ def check_http_methods(domain: str, result: ScanResult, step: Callable[[str, int
                         ))
                     continue
 
-                # For PUT/DELETE/PATCH/CONNECT: 200/201/204 without auth = finding.
-                if r.status_code in (200, 201, 204):
-                    result.add(Finding(
-                        id=f"deep.http_{method.lower()}_accepted",
-                        title=label,
-                        description=f"Server akzeptierte {method} auf / ohne Auth (HTTP {r.status_code}).",
-                        severity=sev,
-                        category="Deep Scan",
-                        evidence={"method": method, "status": r.status_code},
-                        recommendation=f"Am Webserver nur zugelassene Methoden whitelisten und {method} explizit verbieten.",
-                    ))
+                # For PUT/DELETE/PATCH/CONNECT: 200/201/204 with EVIDENCE of
+                # actual acceptance = finding. Evidence = any of:
+                #   - 201 Created (real resource creation)
+                #   - 204 No Content (real deletion, no body)
+                #   - 200 response that differs from the homepage catch-all
+                #     AND does not look like HTML (an API'd return JSON/text).
+                # This eliminates the Next.js / React SPA / CMS-catch-all FP
+                # that was flagging 11 of 30 practice sites falsely.
+                if r.status_code not in (200, 201, 204):
+                    continue
+                if r.status_code == 200:
+                    ct = (r.headers.get("content-type") or "").lower()
+                    body = r.text or ""
+                    # If the server returned HTML, check whether it's the
+                    # homepage fingerprint — if yes, this is just the SPA
+                    # serving the homepage for every verb, not a real accept.
+                    if "html" in ct and is_catchall(body, baselines):
+                        continue
+                    # HTML response that's NOT catch-all: still suspicious
+                    # (could be an error page on the method). Fall through
+                    # to emit the finding but mark it as heuristic.
+                result.add(Finding(
+                    id=f"deep.http_{method.lower()}_accepted",
+                    title=label,
+                    description=(
+                        f"Server antwortete auf {method} auf / mit HTTP {r.status_code}. "
+                        f"Content-Type: {r.headers.get('content-type', 'unbekannt')}. "
+                        "Manuell verifizieren, ob die Methode tatsächlich Schreibzugriff "
+                        "hat — eine 200 allein kann auch eine SPA-Route sein."
+                    ),
+                    severity=sev,
+                    category="Deep Scan",
+                    evidence={
+                        "method": method,
+                        "status": r.status_code,
+                        "content_type": r.headers.get("content-type", ""),
+                    },
+                    recommendation=(
+                        f"Am Webserver nur zugelassene Methoden whitelisten und {method} "
+                        "explizit verbieten. Bei SPAs ggf. nur statistisch relevant — "
+                        "prüfen ob tatsächlich eine Änderung am Ressourcen-Zustand erfolgt."
+                    ),
+                ))
     except httpx.HTTPError:
         return
