@@ -15,6 +15,14 @@
       </p>
     </div>
     <div class="flex items-center gap-2">
+      {% if stats and stats.llm_today %}
+      {% set pct = (stats.llm_today.eur_spent / stats.llm_today.eur_cap * 100) if stats.llm_today.eur_cap else 0 %}
+      {% set col = 'rose' if pct >= 90 else ('amber' if pct >= 60 else 'emerald') %}
+      <div class="inline-flex items-center gap-2 px-3 py-2 text-xs border border-{{ col }}-200 bg-{{ col }}-50 text-{{ col }}-900 rounded-lg" title="Claude API Kosten heute (UTC)">
+        <span>🤖</span>
+        <span><strong>€{{ '%.2f'|format(stats.llm_today.eur_spent) }}</strong> <span class="text-{{ col }}-600">/ €{{ '%.0f'|format(stats.llm_today.eur_cap) }}</span></span>
+      </div>
+      {% endif %}
       {% if stats and stats.unread_msgs > 0 %}
       <a href="/inbox?unread=1"
          class="inline-flex items-center gap-2 px-3 py-2 text-sm border border-sky-200 bg-sky-50 text-sky-900 rounded-lg hover:bg-sky-100">

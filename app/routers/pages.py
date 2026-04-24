@@ -108,6 +108,9 @@ async def index(
         )
     )).scalar() or 0
 
+    from app import llm as _llm
+    llm_today = _llm.today_usage() if _llm.is_enabled() else None
+
     stats = {
         "total":     sum(by_status.values()),
         "queued":    by_status.get("queued", 0),
@@ -117,6 +120,7 @@ async def index(
         "today":     today_count,
         "avg_duration_s": avg_duration_s,
         "unread_msgs": unread_msgs,
+        "llm_today":  llm_today,
     }
 
     # ---- Filtered + paginated list ----

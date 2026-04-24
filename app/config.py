@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # Rejects further drafts and falls back to the plain template once exceeded.
     llm_budget_tokens_per_scan: int = 60000   # ~30 drafts @ ~2000 avg
     llm_budget_tokens_per_day: int = 500000   # global safety net
+    # Hard Euro cap per day. Computed by converting actual input/output
+    # tokens to USD via MODEL_PRICING, then USD→EUR at llm_usd_to_eur.
+    # Raises BudgetExceeded before the next call when today's cost would
+    # push over the cap. Default €5/day.
+    llm_budget_eur_per_day: float = 5.0
+    llm_usd_to_eur: float = 0.92
 
     # Delta-Refiner (pentagi-inspired): after the first recon phase a tiny LLM
     # call decides which of the 50 scanner modules actually make sense for
